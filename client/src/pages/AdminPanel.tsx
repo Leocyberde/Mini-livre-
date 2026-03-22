@@ -26,12 +26,40 @@ import {
   CheckCircle, CalendarClock, Store, CreditCard, Navigation, ChefHat, KeyRound,
   Headphones, MessageCircle, Send, History, Trash2, Bell, ArrowLeft,
   ShieldOff, ShieldCheck, Eye, Filter,
+  Plus, Minus, Ban, Star, Wallet, UserX, UserCheck, XCircle, ChevronRight,
 } from 'lucide-react';
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useSupport } from '@/contexts/SupportContext';
 import { useNotification } from '@/contexts/NotificationContext';
 import { Order } from '@/lib/mockData';
+
+interface AdminMotoboy {
+  id: string;
+  name: string;
+  avatar: string;
+  phone: string;
+  vehicle: string;
+  licensePlate: string;
+  status: 'available' | 'on_route' | 'unavailable' | 'blocked';
+  blockInfo?: { type: 'permanent' | 'hours' | 'days'; until?: Date; reason: string };
+  balanceBonus: number;
+  completedToday: number;
+  completedTotal: number;
+  rejectedTotal: number;
+  currentRoute?: { from: string; to: string; orderId?: string };
+  joinedAt: string;
+  rating: number;
+  isContextMotoboy?: boolean;
+}
+
+const INITIAL_MB_DATA: AdminMotoboy[] = [
+  { id: 'mb-ctx', name: 'João Motoboy', avatar: '🏍️', phone: '(11) 91234-5678', vehicle: 'Honda CG 160', licensePlate: 'ABC-1D34', status: 'unavailable', balanceBonus: 0, completedToday: 0, completedTotal: 0, rejectedTotal: 0, joinedAt: '2024-01-15', rating: 4.8, isContextMotoboy: true },
+  { id: 'mb-1', name: 'Carlos Souza', avatar: '🏍️', phone: '(11) 99876-5432', vehicle: 'Yamaha Factor 125', licensePlate: 'DEF-5E78', status: 'on_route', balanceBonus: 0, completedToday: 3, completedTotal: 142, rejectedTotal: 5, joinedAt: '2023-08-20', rating: 4.6, currentRoute: { from: 'Papelaria Premium', to: 'Rua das Magnólias, 234' } },
+  { id: 'mb-2', name: 'Ana Lima', avatar: '🛵', phone: '(11) 98765-4321', vehicle: 'Honda Biz 125', licensePlate: 'GHI-9F12', status: 'available', balanceBonus: 0, completedToday: 5, completedTotal: 89, rejectedTotal: 2, joinedAt: '2023-11-10', rating: 4.9 },
+  { id: 'mb-3', name: 'Pedro Costa', avatar: '🏍️', phone: '(11) 97654-3210', vehicle: 'Suzuki Yes 125', licensePlate: 'JKL-3G56', status: 'blocked', balanceBonus: 0, completedToday: 0, completedTotal: 67, rejectedTotal: 12, joinedAt: '2023-05-01', rating: 3.8, blockInfo: { type: 'permanent', reason: 'Comportamento inadequado com cliente' } },
+  { id: 'mb-4', name: 'Mariana Oliveira', avatar: '🛵', phone: '(11) 96543-2109', vehicle: 'Honda Pop 110i', licensePlate: 'MNO-7H90', status: 'unavailable', balanceBonus: 0, completedToday: 1, completedTotal: 231, rejectedTotal: 8, joinedAt: '2022-12-01', rating: 4.7 },
+];
 
 export default function AdminPanel() {
   const { allOrders, totalSales, dispatchQueue, readyForPickupOrders, updateOrderStatus } = useMarketplace();
