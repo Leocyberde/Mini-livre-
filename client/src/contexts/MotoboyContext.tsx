@@ -47,6 +47,7 @@ interface MotoboyContextType {
   setActiveOrderId: (id: string | null) => void;
   completeOrderDelivery: (order: { id: string; total: number; storeName?: string; storeId?: string; deliveryAddress?: { logradouro: string; numero: string; bairro: string; cidade: string } }) => void;
   cancelOrderDelivery: (orderId: string) => void;
+  addMotoboyNotification: (message: string) => void;
 }
 
 const MotoboyContext = createContext<MotoboyContextType | undefined>(undefined);
@@ -198,6 +199,15 @@ export function MotoboyProvider({ children }: { children: React.ReactNode }) {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
 
+  const addMotoboyNotification = (message: string) => {
+    setNotifications(prev => [{
+      id: `admin-notif-${Date.now()}`,
+      message,
+      time: new Date(),
+      read: false,
+    }, ...prev]);
+  };
+
   const unreadCount = notifications.filter(n => !n.read).length;
 
   const todayRoutes = completedRoutes.filter(r => {
@@ -231,6 +241,7 @@ export function MotoboyProvider({ children }: { children: React.ReactNode }) {
       screenPhase, setScreenPhase,
       activeOrderId, setActiveOrderId,
       completeOrderDelivery, cancelOrderDelivery,
+      addMotoboyNotification,
     }}>
       {children}
     </MotoboyContext.Provider>
