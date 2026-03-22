@@ -101,7 +101,24 @@ export default function AdminPanel() {
 
   const handleAdminOrderStatus = (orderId: string, status: Order['status']) => {
     updateOrderStatus(orderId, status);
-    toast.success(`Status do pedido #${orderId.slice(-5).toUpperCase()} atualizado.`);
+
+    const order = allOrders.find(o => o.id === orderId);
+
+    if (status === 'delivered' && order && !order.isPickup) {
+      motoboy.completeOrderDelivery({
+        id: order.id,
+        total: order.total,
+        storeName: order.storeName,
+        storeId: order.storeId,
+        deliveryAddress: order.deliveryAddress,
+      });
+    }
+
+    if (status === 'cancelled') {
+      motoboy.cancelOrderDelivery(orderId);
+    }
+
+    toast.success(`Status do pedido #${orderId.slice(-5).toUpperCase()} atualizado para "${statusLabel(status)}".`);
   };
 
   // Support

@@ -45,6 +45,8 @@ interface MotoboyContextType {
   setScreenPhase: (phase: 'coleta' | 'pickup' | 'conclude' | 'entrega' | 'chegada_entrega' | null) => void;
   activeOrderId: string | null;
   setActiveOrderId: (id: string | null) => void;
+  completeOrderDelivery: (order: { id: string; total: number; storeName?: string; storeId?: string; deliveryAddress?: { logradouro: string; numero: string; bairro: string; cidade: string } }) => void;
+  cancelOrderDelivery: (orderId: string) => void;
 }
 
 const MotoboyContext = createContext<MotoboyContextType | undefined>(undefined);
@@ -140,6 +142,58 @@ export function MotoboyProvider({ children }: { children: React.ReactNode }) {
     setTotalRejectedRides(n => n + 1);
   };
 
+  const completeOrderDelivery = (order: { id: string; total: number; storeName?: string; storeId?: string; deliveryAddress?: { logradouro: string; numero: string; bairro: string; cidade: string } }) => {
+    const deliveryFee = Math.max(5, parseFloat((order.total * 0.08).toFixed(2)));
+    const fromLabel = order.storeName || order.storeId || 'Loja';
+    const toLabel = order.deliveryAddress
+      ? `${order.deliveryAddress.logradouro}, ${order.deliveryAddress.numero} — ${order.deliveryAddress.bairro}`
+      : 'Endereço do cliente';
+
+    if (activeOrderId === order.id && currentRoute) {
+      const finished: CompletedRoute = { ...currentRoute, completedAt: new Date(), value: currentRoute.value || deliveryFee };
+      setCompletedRoutes(prev => [finished, ...prev]);
+      setCurrentRoute(null);
+      setStatusState('available');
+      setScreenPhase(null);
+      setActiveOrderId(null);
+    } else {
+      const newRoute: CompletedRoute = {
+        id: `admin-${order.id}`,
+        completedAt: new Date(),
+        value: deliveryFee,
+        from: fromLabel,
+        to: toLabel,
+      };
+      setCompletedRoutes(prev => {
+        const alreadyExists = prev.some(r => r.id === `admin-${order.id}`);
+        if (alreadyExists) return prev;
+        return [newRoute, ...prev];
+      });
+    }
+
+    setNotifications(prev => [{
+      id: `notif-admin-${order.id}`,
+      message: `Pedido #${order.id.slice(-5).toUpperCase()} marcado como entregue pelo admin. Ganho: R$ ${deliveryFee.toFixed(2)}`,
+      time: new Date(),
+      read: false,
+    }, ...prev]);
+  };
+
+  const cancelOrderDelivery = (orderId: string) => {
+    if (activeOrderId === orderId) {
+      setCurrentRoute(null);
+      setStatusState('available');
+      setScreenPhase(null);
+      setActiveOrderId(null);
+    }
+    setNotifications(prev => [{
+      id: `notif-cancel-${orderId}`,
+      message: `Pedido #${orderId.slice(-5).toUpperCase()} foi cancelado pelo administrador.`,
+      time: new Date(),
+      read: false,
+    }, ...prev]);
+  };
+
   const markAllRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
   };
@@ -176,6 +230,7 @@ export function MotoboyProvider({ children }: { children: React.ReactNode }) {
       totalRejectedRides, addRejection,
       screenPhase, setScreenPhase,
       activeOrderId, setActiveOrderId,
+      completeOrderDelivery, cancelOrderDelivery,
     }}>
       {children}
     </MotoboyContext.Provider>
