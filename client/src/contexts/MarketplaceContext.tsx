@@ -4,71 +4,24 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { CartItem, Order, mockStoreCoords } from '@/lib/mockData';
+import { CartItem, Order } from '@/lib/mockData';
 import { useNotification } from './NotificationContext';
 import { calcMotoRideValue, calcDoubleRouteValues } from '@/lib/deliveryCalc';
-import { authFetch, authApi } from '@/lib/authFetch';
+import { authFetch } from '@/lib/authFetch';
 import { useAuth } from '@/contexts/AuthContext';
+import {
+  UserMode,
+  DeliveryRoute,
+  ActiveDeliveryRoute,
+  GroupingSlot,
+  DispatchEntry,
+  PersistedDispatchEntry,
+  GROUPING_WINDOW_MS,
+  MAX_DELIVERY_DISTANCE_KM,
+} from './marketplace/types';
+import { haversineKm, api } from './marketplace/utils';
 
-export type UserMode = 'client' | 'seller' | 'admin' | 'motoboy';
-
-export interface DeliveryRoute {
-  id: string;
-  storeId: string;
-  orderIds: string[];
-  routeType: 'single' | 'double';
-}
-
-export interface ActiveDeliveryRoute {
-  routeId: string;
-  storeId: string;
-  orderIds: string[];
-  routeType: 'single' | 'double';
-}
-
-export interface GroupingSlot {
-  orderId: string;
-  storeId: string;
-  readyPaidAt: number;
-}
-
-export interface DispatchEntry {
-  routeId: string;
-  orderIds: string[];
-  rejectionCount: number;
-  lastRejectedAt: number | null;
-  rejectedByMotoboyIds: string[];
-  cooldownByMotoboyId: Record<string, number>;
-}
-
-interface PersistedDispatchEntry {
-  routeId: string;
-  storeId: string;
-  orderIds: string[];
-  routeType: 'single' | 'double';
-  rejectionCount: number;
-  lastRejectedAt: number | null;
-  rejectedByMotoboyIds: string[];
-  cooldownByMotoboyId: Record<string, number>;
-}
-
-const GROUPING_WINDOW_MS = 10 * 60 * 1000;
-const MAX_DELIVERY_DISTANCE_KM = 5;
-
-function haversineKm(a: [number, number], b: [number, number]): number {
-  const R = 6371;
-  const dLat = ((b[0] - a[0]) * Math.PI) / 180;
-  const dLon = ((b[1] - a[1]) * Math.PI) / 180;
-  const sinDLat = Math.sin(dLat / 2);
-  const sinDLon = Math.sin(dLon / 2);
-  const c =
-    sinDLat * sinDLat +
-    Math.cos((a[0] * Math.PI) / 180) *
-      Math.cos((b[0] * Math.PI) / 180) *
-      sinDLon *
-      sinDLon;
-  return R * 2 * Math.atan2(Math.sqrt(c), Math.sqrt(1 - c));
-}
+export type { UserMode, DeliveryRoute, ActiveDeliveryRoute, GroupingSlot, DispatchEntry };
 
 interface MarketplaceContextType {
   mode: UserMode;
@@ -99,16 +52,6 @@ interface MarketplaceContextType {
 }
 
 const MarketplaceContext = createContext<MarketplaceContextType | undefined>(undefined);
-
-async function api(method: string, path: string, body?: unknown) {
-  try {
-    const response = await authApi(method, path, body);
-    if (!response.ok) return undefined;
-    return response.json();
-  } catch (e) {
-    console.error(e);
-  }
-}
 
 export function MarketplaceProvider({ children }: { children: React.ReactNode }) {
   const { addNotification } = useNotification();
