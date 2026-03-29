@@ -201,6 +201,62 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     return () => window.removeEventListener('clientChanged', handleClientChanged);
   }, [mode]);
 
+  // Poll orders every 5 s in motoboy mode so dispatches created in another browser session
+  // (e.g. the seller's browser) are reflected in the motoboy's dispatch queue.
+  useEffect(() => {
+    if (mode !== 'motoboy') return;
+
+    const poll = async () => {
+      try {
+        const r = await authFetch('/api/orders');
+        if (!r.ok) return;
+        const orders: Order[] = await r.json();
+        if (!Array.isArray(orders)) return;
+
+        setAllOrders(orders);
+
+        const waitingOrders = orders.filter((o: Order) => o.status === 'waiting_motoboy');
+        if (waitingOrders.length === 0) return;
+
+        const { dispatchQueue: currentQueue, pendingRoutes: currentRoutes } = latestRef.current;
+        const existingOrderIds = new Set(currentQueue.flatMap(e => e.orderIds));
+        const existingRouteIds = new Set(currentRoutes.map(r => r.id));
+
+        const newOrders = waitingOrders.filter((o: Order) => !existingOrderIds.has(o.id));
+        if (newOrders.length === 0) return;
+
+        const newRoutes: DeliveryRoute[] = newOrders
+          .filter((o: Order) => !existingRouteIds.has(`route-restore-${o.id}`))
+          .map((o: Order) => ({
+            id: `route-restore-${o.id}`,
+            storeId: o.storeId,
+            orderIds: [o.id],
+            routeType: 'single' as const,
+          }));
+
+        const newEntries: DispatchEntry[] = newOrders
+          .filter((o: Order) => !currentQueue.some(e => e.routeId === `route-restore-${o.id}`))
+          .map((o: Order) => ({
+            routeId: `route-restore-${o.id}`,
+            orderIds: [o.id],
+            rejectionCount: 0,
+            lastRejectedAt: null,
+            rejectedByMotoboyIds: [],
+            cooldownByMotoboyId: {},
+          }));
+
+        if (newRoutes.length > 0) setPendingRoutes(prev => [...prev, ...newRoutes]);
+        if (newEntries.length > 0) setDispatchQueue(prev => [...prev, ...newEntries]);
+      } catch {
+        // ignore network errors
+      }
+    };
+
+    poll();
+    const interval = setInterval(poll, 5000);
+    return () => clearInterval(interval);
+  }, [mode]);
+
   // Detect new seller orders and track as unseen (only after initial load)
   useEffect(() => {
     if (!initialLoadDone.current) return;

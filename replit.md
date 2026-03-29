@@ -1,78 +1,47 @@
 # Marketplace Regional
 
-A full-stack regional marketplace web application with multi-role support: Clients, Sellers, Motoboys (delivery drivers), and Admins.
+A full-stack regional marketplace application connecting clients, sellers (lojistas), delivery drivers (motoboys), and admins.
 
 ## Architecture
 
-- **Frontend**: React 19 + Vite + Tailwind CSS 4 + Shadcn/UI, runs on port 5000
-- **Backend**: Node.js + Express, runs on port 3001 (proxied from frontend via Vite)
-- **Database**: PostgreSQL (Replit built-in), accessed via `pg` pool using `DATABASE_URL`
-- **Auth**: JWT-based auth via `jsonwebtoken` + `bcryptjs`; token stored in `localStorage` under key `auth-token`
-- **Routing**: `wouter` for client-side routing
+- **Frontend**: React 19 + Vite, Tailwind CSS 4, Wouter (routing), Shadcn/UI components
+- **Backend**: Express + Node.js (TypeScript), JWT authentication, WebSockets for real-time GPS tracking
+- **Database**: PostgreSQL (Replit built-in), managed via `pg` with raw SQL schema in `server/db.ts`
+- **Real-time**: WebSocket server at `/ws/tracking` for motoboy GPS location updates
 
 ## Project Structure
 
 ```
-client/         React frontend (entry: client/src/main.tsx)
+client/          # React frontend (Vite root)
   src/
-    components/ UI components including Shadcn/UI primitives in ui/
-    contexts/   React contexts (Auth, Marketplace, Notifications, etc.)
-    pages/      Main views (Home, SellerPanel, MotoboyPanel, etc.)
-    lib/        Utilities and shared logic
-server/         Express backend
-  index.ts      Server entry point
-  routes.ts     All /api/* endpoints
-  db.ts         PostgreSQL schema initialization and pool
-  googleMaps.ts Google Maps geocoding integration
-  delivery.ts   Delivery calculation logic
-shared/         Code shared between client and server
-attached_assets/ Static assets and documentation screenshots
+    pages/       # Role-specific pages (Home, LoginPage, SellerPanel, MotoboyPanel, AdminPanel)
+    contexts/    # Auth, Marketplace, Notifications, Chat, etc.
+    components/  # Shadcn UI primitives + custom components
+server/          # Express backend (TypeScript)
+  index.ts       # Entry point — Express + WebSocket server
+  routes.ts      # All REST API routes under /api
+  db.ts          # PostgreSQL schema init + queries
+  auth.ts        # JWT auth middleware
+shared/          # Shared types and constants (used by both client and server)
 ```
 
 ## Running the App
 
-- **Development**: `npm run dev` — starts backend (tsx) on port 3001 and Vite on port 5000
-- **Build**: `npm run build` — Vite build + esbuild bundle for production
-- **Production**: `npm run start` — runs bundled server from dist/
-
-## Auth System
-
-- `server/auth.ts` — `signToken()`, `requireAuth`, `requireRole()` middleware
-- `/api/auth/login` and `/api/auth/register` return `{ user, token }` (JWT)
-- `/api/auth/add-role` (POST, protected) returns new `{ user, token }` with updated roles
-- Frontend: `client/src/lib/authFetch.ts` exposes `authFetch()` and `authApi()` — all mutating requests go through these to attach the `Authorization: Bearer <token>` header
-- `AuthContext.tsx` saves the token to `localStorage['auth-token']` on login/register/add-role and clears it on logout
-- All write routes (orders, cart, notifications, chat, product-qa, promotions, reviews, motoboys) are protected with `requireAuth` or `requireRole()`
-- All contexts (`MarketplaceContext`, `NotificationContext`, `ProductContext`, etc.) use `authApi`/`authFetch` and handle 401 responses gracefully (fallback to empty arrays)
+- **Dev**: `npm run dev` — starts backend (port 3001) and Vite frontend (port 5000) concurrently
+- **Build**: `npm run build` — builds frontend to `dist/public` and bundles server to `dist/index.js`
+- **Start (prod)**: `npm run start` — runs `dist/index.js`
 
 ## Environment Variables
 
-- `POSTGRES_URL` — PostgreSQL connection string (external DB at 201.76.43.98, set in `.replit`)
-- `DATABASE_URL` — Alternative PostgreSQL connection string (Replit built-in)
-- `JWT_SECRET` — Secret for signing JWT tokens (defaults to hard-coded fallback if unset)
-- `GOOGLE_MAPS_API_KEY` — for geocoding (optional, delivery feature)
-- `PORT` — server port (defaults to 3001 in dev, 3000 in production)
+- `DATABASE_URL` — PostgreSQL connection string (set by Replit)
+- `JWT_SECRET` — Secret for JWT signing
+- `GOOGLE_MAPS_API_KEY` — For geocoding and distance matrix (optional)
+- `PORT` — Server port (defaults to 3001 in dev, 3000 in prod)
 
-## Database
+## Key Details
 
-All tables are created automatically on startup via `initDb()` in `server/db.ts`. An admin user is seeded on first run:
-- Email: `leolulu842@gmail.com`
-- Password: `leoluh123`
-
-## Key Features
-
-- Multi-role authentication (client, seller, motoboy, admin)
-- Product catalog with categories, stock management, and images
-- Shopping cart and order flow with status history
-- Delivery distance calculation and motoboy assignment
-- Real-time-style chat between motoboys and clients
-- Product Q&A system
-- Promotions and discount engine
-- Store and product reviews
-- Notifications system
-
-## Replit Migration Notes
-
-- Packages managed via pnpm; binaries invoked with `pnpm exec` in npm scripts
-- Workflow configured for webview output on port 5000
-- Replit built-in PostgreSQL database provisioned and linked via DATABASE_URL
+- Vite proxies `/api` → `http://localhost:3001` and `/ws` → `ws://localhost:3001` in dev
+- The backend serves the built frontend statically in production
+- Schema is auto-initialized on startup via `initDb()` (CREATE TABLE IF NOT EXISTS)
+- Default admin: `leolulu842@gmail.com` / `leoluh123`
+- Package manager: pnpm (lockfile committed)

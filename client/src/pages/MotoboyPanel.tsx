@@ -2686,24 +2686,26 @@ export default function MotoboyPanel() {
   const { user } = useAuth();
 
   // Auto-select the logged-in user's motoboy profile once data is loaded.
+  // Always enforce the current user's own profile — never inherit another user's session.
   // If no profile exists, create one automatically via /api/motoboys/ensure.
   const ensuredRef = useRef(false);
   useEffect(() => {
-    if (!isLoadingMotoboys && user && !activeMotoboyId) {
-      const myMotoboy = motoboys.find(mb => (mb as any).userId === user.id || mb.id === user.id);
-      if (myMotoboy) {
+    if (isLoadingMotoboys || !user) return;
+    const myMotoboy = motoboys.find(mb => (mb as any).userId === user.id || mb.id === user.id);
+    if (myMotoboy) {
+      if (myMotoboy.id !== activeMotoboyId) {
         setActiveMotoboyId(myMotoboy.id);
-      } else if (!ensuredRef.current) {
-        ensuredRef.current = true;
-        authApi('POST', '/api/motoboys/ensure', { userId: user.id })
-          .then(r => r.json())
-          .then(mb => {
-            if (mb && mb.id) {
-              reloadMotoboys();
-            }
-          })
-          .catch(console.error);
       }
+    } else if (!ensuredRef.current) {
+      ensuredRef.current = true;
+      authApi('POST', '/api/motoboys/ensure', { userId: user.id })
+        .then(r => r.json())
+        .then(mb => {
+          if (mb && mb.id) {
+            reloadMotoboys();
+          }
+        })
+        .catch(console.error);
     }
   }, [isLoadingMotoboys, motoboys, user, activeMotoboyId, setActiveMotoboyId, reloadMotoboys]);
 

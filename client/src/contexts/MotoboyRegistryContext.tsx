@@ -34,8 +34,8 @@ export function MotoboyRegistryProvider({ children }: { children: React.ReactNod
       if (!Array.isArray(data)) { setIsLoadingMotoboys(false); return; }
       if (data.length > 0) {
         setMotoboys(data);
-        const active = data.find((mb: Motoboy & { isActiveSession?: boolean }) => mb.isActiveSession);
-        if (active) setActiveMotoboyIdState(active.id);
+        // Do NOT auto-select based on isActiveSession — that flag is global across all users.
+        // MotoboyPanel is responsible for selecting the correct profile for the logged-in user.
       } else if (initialMotoboys.length > 0) {
         setMotoboys(initialMotoboys);
         api('POST', '/api/motoboys/bulk', initialMotoboys);
