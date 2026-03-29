@@ -21,7 +21,6 @@ export default function LoginPage() {
 
   const [resetEmail, setResetEmail] = useState('');
   const [resetCode, setResetCode] = useState('');
-  const [resetCodeHint, setResetCodeHint] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -49,9 +48,8 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (data.error) { toast.error(data.error); setLoading(false); return; }
-      setResetCodeHint(data.code);
       setStep('forgot-code');
-      toast.success('Código gerado com sucesso!');
+      toast.success('Código enviado! Verifique seu e-mail.');
     } catch {
       toast.error('Erro ao processar solicitação');
     }
@@ -199,13 +197,10 @@ export default function LoginPage() {
 
             {step === 'forgot-code' && (
               <form onSubmit={(e) => { e.preventDefault(); setStep('forgot-new-password'); }} className="space-y-5">
-                {resetCodeHint && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm">
-                    <p className="text-amber-800 font-semibold">Código de verificação (desenvolvimento):</p>
-                    <p className="text-2xl font-mono font-bold text-amber-900 mt-1 tracking-widest">{resetCodeHint}</p>
-                    <p className="text-amber-700 text-xs mt-1">Em produção, este código seria enviado ao seu e-mail.</p>
-                  </div>
-                )}
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm">
+                  <p className="text-blue-800 font-semibold">Verifique seu e-mail</p>
+                  <p className="text-blue-700 text-xs mt-1">Um código de 6 dígitos foi enviado para <strong>{resetEmail}</strong>. Digite-o abaixo para continuar.</p>
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="reset-code">Código de verificação</Label>
                   <Input

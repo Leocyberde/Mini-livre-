@@ -79,22 +79,35 @@ interface SupportContextType {
 
 const SupportContext = createContext<SupportContextType | undefined>(undefined);
 
-const STORAGE_KEY = 'marketplace-support-tickets';
+const BASE_STORAGE_KEY = 'marketplace-support-tickets';
 
 export function SupportProvider({ children }: { children: React.ReactNode }) {
   const { addNotification } = useNotification();
   const { user } = useAuth();
   const isAdmin = user?.roles?.includes('admin') ?? false;
 
+  // Scope the storage key to the current user so two users on the same browser
+  // never share ticket data. Admins get their own scoped key too.
+  const storageKey = user?.id
+    ? `${BASE_STORAGE_KEY}-${user.id}`
+    : BASE_STORAGE_KEY;
+
   // allTickets holds every ticket from every user (required so admin sees all)
   const [allTickets, setAllTickets] = useState<SupportTicket[]>([]);
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try { setAllTickets(JSON.parse(saved)); } catch {}
+    if (!user?.id) {
+      // Logged out — clear in-memory state so previous user's data isn't visible
+      setAllTickets([]);
+      return;
     }
-  }, []);
+    const saved = localStorage.getItem(storageKey);
+    if (saved) {
+      try { setAllTickets(JSON.parse(saved)); } catch { setAllTickets([]); }
+    } else {
+      setAllTickets([]);
+    }
+  }, [user?.id]);
 
   // What context consumers see: admin sees all; others see only their own tickets
   const tickets: SupportTicket[] = isAdmin
@@ -111,7 +124,7 @@ export function SupportProvider({ children }: { children: React.ReactNode }) {
           ...updatedUserTickets,
         ];
     setAllTickets(merged);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    localStorage.setItem(storageKey, JSON.stringify(merged));
   };
 
   const submitTicket = (storeId: string, storeName: string, category: SupportCategory, message: string) => {
@@ -169,7 +182,7 @@ export function SupportProvider({ children }: { children: React.ReactNode }) {
         : t
     );
     setAllTickets(merged);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    localStorage.setItem(storageKey, JSON.stringify(merged));
     if (ticket?.submitterType !== 'motoboy') {
       addNotification({
         target: 'seller',
@@ -192,7 +205,7 @@ export function SupportProvider({ children }: { children: React.ReactNode }) {
       t.id === ticketId ? { ...t, chat: [...t.chat, msg] } : t
     );
     setAllTickets(merged);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    localStorage.setItem(storageKey, JSON.stringify(merged));
     if (sender === 'admin' && ticket?.submitterType !== 'motoboy') {
       addNotification({
         target: 'seller',
@@ -208,7 +221,7 @@ export function SupportProvider({ children }: { children: React.ReactNode }) {
       t.id === ticketId ? { ...t, status: 'resolved' as const } : t
     );
     setAllTickets(merged);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    localStorage.setItem(storageKey, JSON.stringify(merged));
   };
 
   const getSellerActiveTicket = (storeId: string): SupportTicket | null => {

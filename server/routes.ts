@@ -250,13 +250,17 @@ router.delete('/products/:id', requireRole('seller', 'admin'), async (req, res) 
 // Bulk upsert (for initial seed)
 router.post('/products/bulk', requireRole('seller', 'admin'), async (req, res) => {
   try {
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
     const products: unknown[] = req.body;
     for (const p of products as Array<Record<string, unknown>>) {
+      // Sellers can only bulk-import into their own store
+      const storeId = isAdmin ? p.storeId : jwtUser.id;
       await pool.query(`
         INSERT INTO products (id, store_id, name, price, original_price, image, image_url, category, stock, rating, reviews, description, frozen)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         ON CONFLICT (id) DO NOTHING
-      `, [p.id, p.storeId, p.name, p.price, p.originalPrice ?? null, p.image, p.imageUrl ?? null,
+      `, [p.id, storeId, p.name, p.price, p.originalPrice ?? null, p.image, p.imageUrl ?? null,
           p.category, p.stock, p.rating, p.reviews, p.description, p.frozen ?? false]);
     }
     res.json({ ok: true });
@@ -279,7 +283,10 @@ router.get('/orders', requireAuth, async (req, res) => {
     const isMotoboy = jwtUser.roles.includes('motoboy');
 
     if (clientId && clientId !== 'undefined' && clientId !== 'null' && clientId !== '') {
-      // Modo cliente: filtra pelos pedidos do próprio cliente
+      // Não-admin só pode ver os próprios pedidos; ignora clientId externo
+      if (!isAdmin && clientId !== jwtUser.id) {
+        return res.status(403).json({ error: 'Acesso não autorizado' });
+      }
       r = await pool.query('SELECT * FROM orders WHERE client_id = $1 ORDER BY created_at DESC', [clientId]);
     } else if (isAdmin) {
       // Admin vê todos os pedidos
@@ -579,6 +586,18 @@ router.post('/motoboys/bulk', requireRole('admin'), async (req, res) => {
 router.put('/motoboys/:id', requireRole('motoboy', 'admin'), async (req, res) => {
   try {
     const mb = req.body;
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+
+    if (!isAdmin) {
+      const mbRow = await pool.query('SELECT user_id FROM motoboys WHERE id = $1', [req.params.id]);
+      if (mbRow.rows.length === 0) return res.status(404).json({ error: 'Motoboy não encontrado' });
+      const ownerId = mbRow.rows[0].user_id ?? req.params.id;
+      if (ownerId !== jwtUser.id) {
+        return res.status(403).json({ error: 'Acesso não autorizado' });
+      }
+    }
+
     await pool.query(`
       UPDATE motoboys SET
         status=$1, block_info=$2, completed_total=$3, rejected_total=$4, is_active_session=$5
@@ -707,7 +726,7 @@ router.get('/reviews/products', async (_req, res) => {
   }
 });
 
-router.post('/reviews/products', async (req, res) => {
+router.post('/reviews/products', requireAuth, async (req, res) => {
   try {
     const r = req.body;
     await pool.query(`
@@ -735,7 +754,7 @@ router.get('/reviews/stores', async (_req, res) => {
   }
 });
 
-router.post('/reviews/stores', async (req, res) => {
+router.post('/reviews/stores', requireAuth, async (req, res) => {
   try {
     const r = req.body;
     await pool.query(`
@@ -814,9 +833,27 @@ router.post('/notifications', requireAuth, async (req, res) => {
 
 router.put('/notifications/mark-read', requireAuth, async (req, res) => {
   try {
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    const isSeller = jwtUser.roles.includes('seller') && !isAdmin;
     const { target } = req.body;
-    if (target) {
-      await pool.query(`UPDATE notifications SET read=TRUE WHERE target=$1`, [target]);
+
+    if (isAdmin) {
+      if (target) {
+        await pool.query(`UPDATE notifications SET read=TRUE WHERE target=$1`, [target]);
+      }
+    } else if (isSeller) {
+      const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+      const storeId = profileRow.rows[0]?.store_id ?? null;
+      await pool.query(
+        `UPDATE notifications SET read=TRUE WHERE target='seller' AND (store_id=$1 OR store_id IS NULL)`,
+        [storeId]
+      );
+    } else {
+      await pool.query(
+        `UPDATE notifications SET read=TRUE WHERE target='client' AND (client_id=$1 OR client_id IS NULL)`,
+        [jwtUser.id]
+      );
     }
     res.json({ ok: true });
   } catch (err) {
@@ -827,6 +864,28 @@ router.put('/notifications/mark-read', requireAuth, async (req, res) => {
 
 router.put('/notifications/:id/read', requireAuth, async (req, res) => {
   try {
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    const isSeller = jwtUser.roles.includes('seller') && !isAdmin;
+
+    const notifRow = await pool.query('SELECT target, store_id, client_id FROM notifications WHERE id=$1', [req.params.id]);
+    if (notifRow.rows.length === 0) return res.status(404).json({ error: 'Notificação não encontrada' });
+    const notif = notifRow.rows[0];
+
+    if (!isAdmin) {
+      if (isSeller) {
+        const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+        const storeId = profileRow.rows[0]?.store_id ?? null;
+        if (notif.target !== 'seller' || (notif.store_id !== null && notif.store_id !== storeId)) {
+          return res.status(403).json({ error: 'Acesso não autorizado' });
+        }
+      } else {
+        if (notif.target !== 'client' || (notif.client_id !== null && notif.client_id !== jwtUser.id)) {
+          return res.status(403).json({ error: 'Acesso não autorizado' });
+        }
+      }
+    }
+
     await pool.query(`UPDATE notifications SET read=TRUE WHERE id=$1`, [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
@@ -837,8 +896,25 @@ router.put('/notifications/:id/read', requireAuth, async (req, res) => {
 
 // ─── CHAT ─────────────────────────────────────────────────────────────────────
 
-router.get('/chat/:orderId', async (req, res) => {
+// Helper: verify the authenticated user is a party to the given order
+async function assertOrderAccess(
+  orderId: string,
+  jwtUser: { id: string; roles: string[] }
+): Promise<{ allowed: boolean; status?: number; error?: string }> {
+  if (jwtUser.roles.includes('admin')) return { allowed: true };
+  const orderRow = await pool.query('SELECT client_id, store_id, motoboy_id FROM orders WHERE id=$1', [orderId]);
+  if (orderRow.rows.length === 0) return { allowed: false, status: 404, error: 'Pedido não encontrado' };
+  const order = orderRow.rows[0];
+  if (jwtUser.roles.includes('client') && order.client_id === jwtUser.id) return { allowed: true };
+  if (jwtUser.roles.includes('seller') && order.store_id === jwtUser.id) return { allowed: true };
+  if (jwtUser.roles.includes('motoboy') && (order.motoboy_id === jwtUser.id || order.motoboy_id === null)) return { allowed: true };
+  return { allowed: false, status: 403, error: 'Acesso não autorizado' };
+}
+
+router.get('/chat/:orderId', requireAuth, async (req, res) => {
   try {
+    const access = await assertOrderAccess(req.params.orderId, req.jwtUser!);
+    if (!access.allowed) return res.status(access.status!).json({ error: access.error });
     const r = await pool.query('SELECT * FROM chat_messages WHERE order_id=$1 ORDER BY timestamp', [req.params.orderId]);
     res.json(r.rows.map(row => ({
       id: row.id, orderId: row.order_id, sender: row.sender,
@@ -852,6 +928,8 @@ router.get('/chat/:orderId', async (req, res) => {
 
 router.post('/chat/:orderId', requireAuth, async (req, res) => {
   try {
+    const access = await assertOrderAccess(req.params.orderId, req.jwtUser!);
+    if (!access.allowed) return res.status(access.status!).json({ error: access.error });
     const m = req.body;
     await pool.query(`
       INSERT INTO chat_messages (id, order_id, sender, text, timestamp, read)
@@ -866,6 +944,8 @@ router.post('/chat/:orderId', requireAuth, async (req, res) => {
 
 router.put('/chat/:orderId/read', requireAuth, async (req, res) => {
   try {
+    const access = await assertOrderAccess(req.params.orderId, req.jwtUser!);
+    if (!access.allowed) return res.status(access.status!).json({ error: access.error });
     const { reader } = req.body;
     const other = reader === 'motoboy' ? 'client' : 'motoboy';
     await pool.query(
@@ -881,6 +961,8 @@ router.put('/chat/:orderId/read', requireAuth, async (req, res) => {
 
 router.delete('/chat/:orderId', requireRole('seller', 'admin', 'motoboy'), async (req, res) => {
   try {
+    const access = await assertOrderAccess(req.params.orderId, req.jwtUser!);
+    if (!access.allowed) return res.status(access.status!).json({ error: access.error });
     await pool.query('DELETE FROM chat_messages WHERE order_id=$1', [req.params.orderId]);
     res.json({ ok: true });
   } catch (err) {
@@ -923,6 +1005,19 @@ router.post('/product-qa', requireAuth, async (req, res) => {
 
 router.put('/product-qa/:id/answer', requireRole('seller', 'admin'), async (req, res) => {
   try {
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+
+    if (!isAdmin) {
+      const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+      const storeId = profileRow.rows[0]?.store_id ?? null;
+      const qaRow = await pool.query('SELECT store_id FROM product_qa WHERE id = $1', [req.params.id]);
+      if (qaRow.rows.length === 0) return res.status(404).json({ error: 'Pergunta não encontrada' });
+      if (qaRow.rows[0].store_id !== storeId) {
+        return res.status(403).json({ error: 'Acesso não autorizado: pergunta não pertence à sua loja' });
+      }
+    }
+
     const { answer } = req.body;
     await pool.query(
       `UPDATE product_qa SET answer=$1, status='answered', answered_at=$2 WHERE id=$3`,
@@ -937,6 +1032,19 @@ router.put('/product-qa/:id/answer', requireRole('seller', 'admin'), async (req,
 
 router.put('/product-qa/:id/close', requireRole('seller', 'admin'), async (req, res) => {
   try {
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+
+    if (!isAdmin) {
+      const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+      const storeId = profileRow.rows[0]?.store_id ?? null;
+      const qaRow = await pool.query('SELECT store_id FROM product_qa WHERE id = $1', [req.params.id]);
+      if (qaRow.rows.length === 0) return res.status(404).json({ error: 'Pergunta não encontrada' });
+      if (qaRow.rows[0].store_id !== storeId) {
+        return res.status(403).json({ error: 'Acesso não autorizado: pergunta não pertence à sua loja' });
+      }
+    }
+
     await pool.query(`UPDATE product_qa SET status='closed' WHERE id=$1`, [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
@@ -1049,8 +1157,13 @@ router.post('/auth/login', async (req, res) => {
   }
 });
 
-router.get('/auth/user/:id', async (req, res) => {
+router.get('/auth/user/:id', requireAuth, async (req, res) => {
   try {
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    if (!isAdmin && req.params.id !== jwtUser.id) {
+      return res.status(403).json({ error: 'Acesso não autorizado' });
+    }
     const r = await pool.query('SELECT * FROM users WHERE id = $1', [req.params.id]);
     if (r.rows.length === 0) return res.status(404).json({ error: 'Usuário não encontrado' });
     res.json({ user: formatUser(r.rows[0]) });
@@ -1062,8 +1175,21 @@ router.get('/auth/user/:id', async (req, res) => {
 
 router.post('/auth/add-role', requireAuth, async (req, res) => {
   try {
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
     const { userId, role, storeData, motoboyData } = req.body;
     if (!userId || !role) return res.status(400).json({ error: 'userId e role são obrigatórios' });
+
+    // Non-admins can only assign seller/motoboy to themselves
+    if (!isAdmin) {
+      if (userId !== jwtUser.id) {
+        return res.status(403).json({ error: 'Acesso não autorizado: não é possível alterar outros usuários' });
+      }
+      if (!['seller', 'motoboy'].includes(role)) {
+        return res.status(403).json({ error: 'Acesso não autorizado: permissão inválida' });
+      }
+    }
+
     const r = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
     if (r.rows.length === 0) return res.status(404).json({ error: 'Usuário não encontrado' });
     const user = r.rows[0];
@@ -1115,7 +1241,7 @@ router.post('/auth/forgot-password', async (req, res) => {
     await pool.query('UPDATE password_reset_tokens SET used = TRUE WHERE user_id = $1', [userId]);
     await pool.query(`INSERT INTO password_reset_tokens (id, user_id, code, expires_at) VALUES ($1,$2,$3,$4)`,
       [nanoid(), userId, code, expiresAt]);
-    res.json({ ok: true, code, message: 'Código gerado. Em produção, seria enviado por e-mail.' });
+    res.json({ ok: true, message: 'Se o e-mail estiver cadastrado, o código de recuperação será enviado.' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro interno do servidor' });
@@ -1179,18 +1305,22 @@ router.get('/promotions', async (req, res) => {
 router.post('/promotions', requireRole('seller', 'admin'), async (req, res) => {
   try {
     const { nanoid } = await import('nanoid');
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
     const {
       storeId, title, description, type, value, minOrderValue,
       applyTo, productIds, category, startsAt, endsAt, isActive,
       buyQuantity, getQuantity,
     } = req.body;
+    // Sellers can only create promotions for their own store
+    const effectiveStoreId = isAdmin ? storeId : jwtUser.id;
     const id = nanoid();
     const createdAt = new Date().toISOString();
     await pool.query(`
       INSERT INTO promotions
         (id, store_id, title, description, type, value, min_order_value, apply_to, product_ids, category, starts_at, ends_at, is_active, buy_quantity, get_quantity, created_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-    `, [id, storeId, title, description || '', type, value || 0, minOrderValue || 0,
+    `, [id, effectiveStoreId, title, description || '', type, value || 0, minOrderValue || 0,
         applyTo || 'all', JSON.stringify(productIds || []), category || '',
         startsAt, endsAt, isActive !== false, buyQuantity || 1, getQuantity || 1, createdAt]);
     res.json({ id, createdAt });
@@ -1203,6 +1333,17 @@ router.post('/promotions', requireRole('seller', 'admin'), async (req, res) => {
 router.put('/promotions/:id', requireRole('seller', 'admin'), async (req, res) => {
   try {
     const { id } = req.params;
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+
+    if (!isAdmin) {
+      const check = await pool.query('SELECT store_id FROM promotions WHERE id = $1', [id]);
+      if (check.rows.length === 0) return res.status(404).json({ error: 'Promoção não encontrada' });
+      if (check.rows[0].store_id !== jwtUser.id) {
+        return res.status(403).json({ error: 'Acesso não autorizado: promoção não pertence à sua loja' });
+      }
+    }
+
     const {
       title, description, type, value, minOrderValue,
       applyTo, productIds, category, startsAt, endsAt, isActive,
@@ -1226,6 +1367,17 @@ router.put('/promotions/:id', requireRole('seller', 'admin'), async (req, res) =
 
 router.delete('/promotions/:id', requireRole('seller', 'admin'), async (req, res) => {
   try {
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+
+    if (!isAdmin) {
+      const check = await pool.query('SELECT store_id FROM promotions WHERE id = $1', [req.params.id]);
+      if (check.rows.length === 0) return res.status(404).json({ error: 'Promoção não encontrada' });
+      if (check.rows[0].store_id !== jwtUser.id) {
+        return res.status(403).json({ error: 'Acesso não autorizado: promoção não pertence à sua loja' });
+      }
+    }
+
     await pool.query('DELETE FROM promotions WHERE id = $1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {

@@ -1,7 +1,10 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.SESSION_SECRET || 'fallback-dev-secret';
+const JWT_SECRET = process.env.SESSION_SECRET as string;
+if (!JWT_SECRET) {
+  throw new Error('SESSION_SECRET environment variable is not set. Server cannot start without a secure JWT secret.');
+}
 const JWT_EXPIRES_IN = '7d';
 
 export interface JwtPayload {

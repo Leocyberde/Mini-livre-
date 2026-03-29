@@ -116,6 +116,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
+    if (user?.id) {
+      localStorage.removeItem(`marketplace-mode_${user.id}`);
+    }
     setUser(null);
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem('marketplace-mode');
