@@ -251,6 +251,23 @@ export async function initDb() {
         expires_at TIMESTAMP NOT NULL,
         used BOOLEAN NOT NULL DEFAULT FALSE
       );
+
+      -- Notification recipient scoping (idempotent)
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS store_id TEXT;
+      ALTER TABLE notifications ADD COLUMN IF NOT EXISTS client_id TEXT;
+
+      -- Dispatch queue — persists motoboy rejection state across reloads
+      CREATE TABLE IF NOT EXISTS dispatch_queue (
+        route_id TEXT PRIMARY KEY,
+        store_id TEXT NOT NULL DEFAULT '',
+        order_ids JSONB NOT NULL DEFAULT '[]',
+        route_type TEXT NOT NULL DEFAULT 'single',
+        rejection_count INTEGER NOT NULL DEFAULT 0,
+        last_rejected_at BIGINT,
+        rejected_by_motoboy_ids JSONB NOT NULL DEFAULT '[]',
+        cooldown_by_motoboy_id JSONB NOT NULL DEFAULT '{}',
+        created_at BIGINT NOT NULL
+      );
     `);
     console.log('Database tables initialized');
 

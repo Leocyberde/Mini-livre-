@@ -103,6 +103,7 @@ export default function ProductDetailModal({
       icon: '❓',
       title: `Pergunta sobre: ${product.name}`,
       body: trimmed,
+      storeId: product.storeId,
       metadata: {
         questionId: q.id,
         productId: product.id,

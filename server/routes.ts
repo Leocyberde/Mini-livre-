@@ -340,10 +340,21 @@ router.put('/orders/:id/status', requireRole('seller', 'admin', 'motoboy'), asyn
     const { status, statusHistory, deliveredAt } = req.body;
     const jwtUser = req.jwtUser!;
     const isMotoboy = jwtUser.roles.includes('motoboy') && !jwtUser.roles.includes('admin');
+    const isSeller = jwtUser.roles.includes('seller') && !jwtUser.roles.includes('admin');
+
+    if (isSeller) {
+      const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+      if (profileRow.rows.length === 0) return res.status(403).json({ error: 'Perfil de vendedor não encontrado' });
+      const orderRow = await pool.query('SELECT store_id FROM orders WHERE id = $1', [req.params.id]);
+      if (orderRow.rows.length === 0) return res.status(404).json({ error: 'Pedido não encontrado' });
+      if (orderRow.rows[0].store_id !== profileRow.rows[0].store_id) {
+        return res.status(403).json({ error: 'Acesso não autorizado' });
+      }
+    }
+
     const motoboyStatuses = ['motoboy_accepted', 'picked_up', 'motoboy_at_store', 'on_the_way', 'motoboy_arrived', 'delivered'];
 
     if (isMotoboy && motoboyStatuses.includes(status)) {
-      // Atribui o motoboy_id ao pedido no primeiro status de aceite e mantém nos seguintes
       await pool.query(
         `UPDATE orders SET status=$1, updated_at=$2, status_history=$3, delivered_at=$4, motoboy_id=$5 WHERE id=$6`,
         [status, new Date().toISOString(), JSON.stringify(statusHistory ?? []), deliveredAt ?? null, jwtUser.id, req.params.id]
@@ -364,6 +375,19 @@ router.put('/orders/:id/status', requireRole('seller', 'admin', 'motoboy'), asyn
 router.put('/orders/:id/payment', requireRole('seller', 'admin'), async (req, res) => {
   try {
     const { paymentStatus } = req.body;
+    const jwtUser = req.jwtUser!;
+    const isSeller = jwtUser.roles.includes('seller') && !jwtUser.roles.includes('admin');
+
+    if (isSeller) {
+      const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+      if (profileRow.rows.length === 0) return res.status(403).json({ error: 'Perfil de vendedor não encontrado' });
+      const orderRow = await pool.query('SELECT store_id FROM orders WHERE id = $1', [req.params.id]);
+      if (orderRow.rows.length === 0) return res.status(404).json({ error: 'Pedido não encontrado' });
+      if (orderRow.rows[0].store_id !== profileRow.rows[0].store_id) {
+        return res.status(403).json({ error: 'Acesso não autorizado' });
+      }
+    }
+
     await pool.query(
       `UPDATE orders SET payment_status=$1, updated_at=$2 WHERE id=$3`,
       [paymentStatus, new Date().toISOString(), req.params.id]
@@ -375,9 +399,22 @@ router.put('/orders/:id/payment', requireRole('seller', 'admin'), async (req, re
   }
 });
 
-router.put('/orders/:id/seen', requireRole('seller', 'admin'), async (_req, res) => {
+router.put('/orders/:id/seen', requireRole('seller', 'admin'), async (req, res) => {
   try {
-    await pool.query(`UPDATE orders SET seen_by_seller=TRUE WHERE id=$1`, [_req.params.id]);
+    const jwtUser = req.jwtUser!;
+    const isSeller = jwtUser.roles.includes('seller') && !jwtUser.roles.includes('admin');
+
+    if (isSeller) {
+      const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+      if (profileRow.rows.length === 0) return res.status(403).json({ error: 'Perfil de vendedor não encontrado' });
+      const orderRow = await pool.query('SELECT store_id FROM orders WHERE id = $1', [req.params.id]);
+      if (orderRow.rows.length === 0) return res.status(404).json({ error: 'Pedido não encontrado' });
+      if (orderRow.rows[0].store_id !== profileRow.rows[0].store_id) {
+        return res.status(403).json({ error: 'Acesso não autorizado' });
+      }
+    }
+
+    await pool.query(`UPDATE orders SET seen_by_seller=TRUE WHERE id=$1`, [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -558,6 +595,18 @@ router.put('/motoboys/:id', requireRole('motoboy', 'admin'), async (req, res) =>
 router.put('/motoboys/:id/active-session', requireRole('motoboy', 'admin'), async (req, res) => {
   try {
     const { isActive } = req.body;
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+
+    if (!isAdmin) {
+      const mbRow = await pool.query('SELECT user_id FROM motoboys WHERE id = $1', [req.params.id]);
+      if (mbRow.rows.length === 0) return res.status(404).json({ error: 'Motoboy não encontrado' });
+      const ownerId = mbRow.rows[0].user_id ?? req.params.id;
+      if (ownerId !== jwtUser.id) {
+        return res.status(403).json({ error: 'Acesso não autorizado' });
+      }
+    }
+
     await pool.query('UPDATE motoboys SET is_active_session=$1 WHERE id=$2', [isActive, req.params.id]);
     res.json({ ok: true });
   } catch (err) {
@@ -584,6 +633,63 @@ function mapMotoboy(row: Record<string, unknown>) {
     isActiveSession: row.is_active_session,
   };
 }
+
+// ─── DISPATCH QUEUE ───────────────────────────────────────────────────────────
+
+router.get('/dispatch-queue', requireRole('seller', 'admin', 'motoboy'), async (_req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM dispatch_queue ORDER BY created_at ASC');
+    res.json(r.rows.map(row => ({
+      routeId: row.route_id,
+      storeId: row.store_id,
+      orderIds: row.order_ids,
+      routeType: row.route_type,
+      rejectionCount: Number(row.rejection_count),
+      lastRejectedAt: row.last_rejected_at ? Number(row.last_rejected_at) : null,
+      rejectedByMotoboyIds: row.rejected_by_motoboy_ids,
+      cooldownByMotoboyId: row.cooldown_by_motoboy_id,
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.put('/dispatch-queue/:routeId', requireRole('seller', 'admin', 'motoboy'), async (req, res) => {
+  try {
+    const e = req.body;
+    await pool.query(`
+      INSERT INTO dispatch_queue (route_id, store_id, order_ids, route_type, rejection_count, last_rejected_at, rejected_by_motoboy_ids, cooldown_by_motoboy_id, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      ON CONFLICT (route_id) DO UPDATE SET
+        rejection_count = EXCLUDED.rejection_count,
+        last_rejected_at = EXCLUDED.last_rejected_at,
+        rejected_by_motoboy_ids = EXCLUDED.rejected_by_motoboy_ids,
+        cooldown_by_motoboy_id = EXCLUDED.cooldown_by_motoboy_id
+    `, [
+      req.params.routeId, e.storeId ?? '',
+      JSON.stringify(e.orderIds ?? []), e.routeType ?? 'single',
+      e.rejectionCount ?? 0, e.lastRejectedAt ?? null,
+      JSON.stringify(e.rejectedByMotoboyIds ?? []),
+      JSON.stringify(e.cooldownByMotoboyId ?? {}),
+      e.createdAt ?? Date.now(),
+    ]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.delete('/dispatch-queue/:routeId', requireRole('seller', 'admin', 'motoboy'), async (req, res) => {
+  try {
+    await pool.query('DELETE FROM dispatch_queue WHERE route_id = $1', [req.params.routeId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // ─── REVIEWS ──────────────────────────────────────────────────────────────────
 
@@ -645,9 +751,29 @@ router.post('/reviews/stores', async (req, res) => {
 
 // ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
 
-router.get('/notifications', async (_req, res) => {
+router.get('/notifications', requireAuth, async (req, res) => {
   try {
-    const r = await pool.query('SELECT * FROM notifications ORDER BY timestamp DESC LIMIT 100');
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    const isSeller = jwtUser.roles.includes('seller') && !isAdmin;
+
+    let r;
+    if (isAdmin) {
+      r = await pool.query('SELECT * FROM notifications ORDER BY timestamp DESC LIMIT 200');
+    } else if (isSeller) {
+      const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+      const storeId = profileRow.rows[0]?.store_id ?? null;
+      r = await pool.query(
+        `SELECT * FROM notifications WHERE target = 'seller' AND (store_id = $1 OR store_id IS NULL) ORDER BY timestamp DESC LIMIT 100`,
+        [storeId]
+      );
+    } else {
+      r = await pool.query(
+        `SELECT * FROM notifications WHERE target = 'client' AND (client_id = $1 OR client_id IS NULL) ORDER BY timestamp DESC LIMIT 100`,
+        [jwtUser.id]
+      );
+    }
+
     res.json(r.rows.map(row => ({
       id: row.id, title: row.title, body: row.body, icon: row.icon,
       timestamp: row.timestamp, read: row.read, target: row.target,
@@ -662,11 +788,23 @@ router.get('/notifications', async (_req, res) => {
 router.post('/notifications', requireAuth, async (req, res) => {
   try {
     const n = req.body;
+    const jwtUser = req.jwtUser!;
+
+    let storeId: string | null = n.storeId ?? null;
+    let clientId: string | null = n.clientId ?? null;
+
+    // Auto-populate store_id for seller-targeted notifications when sender is the seller
+    if (!storeId && n.target === 'seller' && jwtUser.roles.includes('seller')) {
+      const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+      storeId = profileRow.rows[0]?.store_id ?? null;
+    }
+
     await pool.query(`
-      INSERT INTO notifications (id, title, body, icon, timestamp, read, target, type, metadata)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      INSERT INTO notifications (id, title, body, icon, timestamp, read, target, type, metadata, store_id, client_id)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
     `, [n.id, n.title, n.body, n.icon, n.timestamp, n.read ?? false,
-        n.target, n.type ?? 'general', JSON.stringify(n.metadata ?? {})]);
+        n.target, n.type ?? 'general', JSON.stringify(n.metadata ?? {}),
+        storeId, clientId]);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);

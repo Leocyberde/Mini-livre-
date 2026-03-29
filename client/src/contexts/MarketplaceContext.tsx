@@ -41,6 +41,17 @@ export interface DispatchEntry {
   cooldownByMotoboyId: Record<string, number>;
 }
 
+interface PersistedDispatchEntry {
+  routeId: string;
+  storeId: string;
+  orderIds: string[];
+  routeType: 'single' | 'double';
+  rejectionCount: number;
+  lastRejectedAt: number | null;
+  rejectedByMotoboyIds: string[];
+  cooldownByMotoboyId: Record<string, number>;
+}
+
 const GROUPING_WINDOW_MS = 10 * 60 * 1000;
 const MAX_DELIVERY_DISTANCE_KM = 5;
 
@@ -103,9 +114,18 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const { addNotification } = useNotification();
   const { user } = useAuth();
   const activeClientKey = () => user?.id ? `active-client-id_${user.id}` : null;
-  const [mode, setMode] = useState<UserMode>(() => {
-    return (localStorage.getItem('marketplace-mode') as UserMode) || 'client';
-  });
+  const modeKey = (uid: string | undefined) => uid ? `marketplace-mode_${uid}` : null;
+  const [mode, setMode] = useState<UserMode>('client');
+
+  useEffect(() => {
+    if (user?.id) {
+      const stored = localStorage.getItem(`marketplace-mode_${user.id}`);
+      setMode((stored as UserMode) || 'client');
+    } else {
+      setMode('client');
+    }
+  }, [user?.id]);
+
   const [cart, setCart] = useState<CartItem[]>([]);
   const [clientOrders, setClientOrders] = useState<Order[]>([]);
   const [sellerOrders, setSellerOrders] = useState<Order[]>([]);
@@ -166,26 +186,27 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         );
       }
 
-      const waiting = orders.filter((o: Order) => o.status === 'waiting_motoboy');
-      if (waiting.length > 0) {
-        const routes: DeliveryRoute[] = waiting.map((o: Order) => ({
-          id: `route-restore-${o.id}`,
-          storeId: o.storeId,
-          orderIds: [o.id],
-          routeType: 'single' as const,
-        }));
-        setPendingRoutes(routes);
-        setDispatchQueue(
-          routes.map(r => ({
-            routeId: r.id,
-            orderIds: r.orderIds,
-            rejectionCount: 0,
-            lastRejectedAt: null,
-            rejectedByMotoboyIds: [],
-            cooldownByMotoboyId: {},
-          })),
-        );
-      }
+      // Load persisted dispatch queue (with rejection state) from the database
+      authFetch('/api/dispatch-queue')
+        .then(r => r.ok ? r.json() : [])
+        .then((entries: PersistedDispatchEntry[]) => {
+          if (!Array.isArray(entries) || entries.length === 0) return;
+          setPendingRoutes(entries.map(e => ({
+            id: e.routeId,
+            storeId: e.storeId,
+            orderIds: e.orderIds,
+            routeType: e.routeType,
+          })));
+          setDispatchQueue(entries.map(e => ({
+            routeId: e.routeId,
+            orderIds: e.orderIds,
+            rejectionCount: e.rejectionCount,
+            lastRejectedAt: e.lastRejectedAt,
+            rejectedByMotoboyIds: e.rejectedByMotoboyIds,
+            cooldownByMotoboyId: e.cooldownByMotoboyId,
+          })));
+        })
+        .catch(console.error);
     }).catch(console.error);
   };
 
@@ -205,54 +226,52 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     return () => window.removeEventListener('clientChanged', handleClientChanged);
   }, [mode]);
 
-  // Poll orders every 5 s in motoboy mode so dispatches created in another browser session
-  // (e.g. the seller's browser) are reflected in the motoboy's dispatch queue.
+  // Poll orders + dispatch queue every 5 s in motoboy mode so dispatches created in
+  // another browser session (e.g. the seller's browser) are reflected here, with full
+  // rejection-state preservation from the database.
   useEffect(() => {
     if (mode !== 'motoboy') return;
 
     const poll = async () => {
       try {
-        const r = await authFetch('/api/orders');
-        if (!r.ok) return;
-        const orders: Order[] = await r.json();
-        if (!Array.isArray(orders)) return;
+        // Keep the order list current so route details render correctly
+        const orderResp = await authFetch('/api/orders');
+        if (orderResp.ok) {
+          const orders: Order[] = await orderResp.json();
+          if (Array.isArray(orders)) setAllOrders(orders);
+        }
 
-        setAllOrders(orders);
+        // Fetch the authoritative dispatch queue from the database
+        const dqResp = await authFetch('/api/dispatch-queue');
+        if (!dqResp.ok) return;
+        const entries: PersistedDispatchEntry[] = await dqResp.json();
+        if (!Array.isArray(entries)) return;
 
-        const waitingOrders = orders.filter((o: Order) => o.status === 'waiting_motoboy');
-        if (waitingOrders.length === 0) return;
+        const { dispatchQueue: currentQueue } = latestRef.current;
 
-        const { dispatchQueue: currentQueue, pendingRoutes: currentRoutes } = latestRef.current;
-        const existingOrderIds = new Set(currentQueue.flatMap(e => e.orderIds));
-        const existingRouteIds = new Set(currentRoutes.map(r => r.id));
+        // Only add entries that are genuinely new (not already tracked locally)
+        const newEntries = entries.filter(e => !currentQueue.some(q => q.routeId === e.routeId));
+        if (newEntries.length === 0) return;
 
-        const newOrders = waitingOrders.filter((o: Order) => !existingOrderIds.has(o.id));
-        if (newOrders.length === 0) return;
-
-        const newRoutes: DeliveryRoute[] = newOrders
-          .filter((o: Order) => !existingRouteIds.has(`route-restore-${o.id}`))
-          .map((o: Order) => ({
-            id: `route-restore-${o.id}`,
-            storeId: o.storeId,
-            orderIds: [o.id],
-            routeType: 'single' as const,
-          }));
-
-        const newEntries: DispatchEntry[] = newOrders
-          .filter((o: Order) => !currentQueue.some(e => e.routeId === `route-restore-${o.id}`))
-          .map((o: Order) => ({
-            routeId: `route-restore-${o.id}`,
-            orderIds: [o.id],
-            rejectionCount: 0,
-            lastRejectedAt: null,
-            rejectedByMotoboyIds: [],
-            cooldownByMotoboyId: {},
-          }));
+        const newRoutes: DeliveryRoute[] = newEntries.map(e => ({
+          id: e.routeId,
+          storeId: e.storeId,
+          orderIds: e.orderIds,
+          routeType: e.routeType,
+        }));
+        const newQueueEntries: DispatchEntry[] = newEntries.map(e => ({
+          routeId: e.routeId,
+          orderIds: e.orderIds,
+          rejectionCount: e.rejectionCount,
+          lastRejectedAt: e.lastRejectedAt,
+          rejectedByMotoboyIds: e.rejectedByMotoboyIds,
+          cooldownByMotoboyId: e.cooldownByMotoboyId,
+        }));
 
         if (newRoutes.length > 0) setPendingRoutes(prev => [...prev, ...newRoutes]);
-        if (newEntries.length > 0) setDispatchQueue(prev => [...prev, ...newEntries]);
+        if (newQueueEntries.length > 0) setDispatchQueue(prev => [...prev, ...newQueueEntries]);
       } catch {
-        // ignore network errors
+        // ignore network errors during poll
       }
     };
 
@@ -277,7 +296,8 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
 
   const handleSetMode = (newMode: UserMode) => {
     setMode(newMode);
-    localStorage.setItem('marketplace-mode', newMode);
+    const key = modeKey(user?.id);
+    if (key) localStorage.setItem(key, newMode);
   };
 
   // ── Cart operations ──────────────────────────────────────────────────────────
@@ -400,17 +420,23 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     setClientOrders(prev => prev.map(o => applyWaiting(o)));
 
     setPendingRoutes(prev => [...prev, route]);
-    setDispatchQueue(prev => [
-      ...prev,
-      {
-        routeId,
-        orderIds,
-        rejectionCount: 0,
-        lastRejectedAt: null,
-        rejectedByMotoboyIds: [],
-        cooldownByMotoboyId: {},
-      },
-    ]);
+    const newEntry: DispatchEntry = {
+      routeId,
+      orderIds,
+      rejectionCount: 0,
+      lastRejectedAt: null,
+      rejectedByMotoboyIds: [],
+      cooldownByMotoboyId: {},
+    };
+    setDispatchQueue(prev => [...prev, newEntry]);
+
+    // Persist to database so rejection state survives page reloads
+    api('PUT', `/api/dispatch-queue/${routeId}`, {
+      ...newEntry,
+      storeId,
+      routeType,
+      createdAt: Date.now(),
+    });
   };
 
   useEffect(() => {
@@ -474,6 +500,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       icon: '🛒',
       title: 'Novo pedido recebido!',
       body: `Pedido #${order.id.slice(-5).toUpperCase()} chegou e aguarda confirmação.`,
+      storeId: order.storeId,
     });
   };
 
@@ -527,29 +554,40 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   };
 
   const rejectDispatch = (routeId: string, motoboyId?: string) => {
-    setDispatchQueue(prev => {
-      const entry = prev.find(e => e.routeId === routeId);
-      if (!entry) return prev;
-      const newRejectionCount = entry.rejectionCount + 1;
+    const entry = latestRef.current.dispatchQueue.find(e => e.routeId === routeId);
+    if (!entry) return;
 
-      if (newRejectionCount >= 3) {
-        setTimeout(() => timeoutDispatch(routeId, motoboyId), 0);
-        return prev.filter(e => e.routeId !== routeId);
-      }
+    const newRejectionCount = entry.rejectionCount + 1;
 
-      return prev.map(e => {
-        if (e.routeId !== routeId) return e;
-        const rejectedIds = motoboyId ? [...e.rejectedByMotoboyIds, motoboyId] : e.rejectedByMotoboyIds;
-        const cooldowns = motoboyId ? { ...e.cooldownByMotoboyId, [motoboyId]: Date.now() } : e.cooldownByMotoboyId;
-        return {
-          ...e,
-          rejectionCount: newRejectionCount,
-          lastRejectedAt: Date.now(),
-          rejectedByMotoboyIds: rejectedIds,
-          cooldownByMotoboyId: cooldowns,
-        };
-      });
+    if (newRejectionCount >= 3) {
+      // Remove from DB — route will be re-queued by timeoutDispatch
+      api('DELETE', `/api/dispatch-queue/${routeId}`);
+      setDispatchQueue(prev => prev.filter(e => e.routeId !== routeId));
+      setTimeout(() => timeoutDispatch(routeId, motoboyId), 0);
+      return;
+    }
+
+    const rejectedIds = motoboyId ? [...entry.rejectedByMotoboyIds, motoboyId] : entry.rejectedByMotoboyIds;
+    const cooldowns = motoboyId
+      ? { ...entry.cooldownByMotoboyId, [motoboyId]: Date.now() }
+      : entry.cooldownByMotoboyId;
+    const updatedEntry: DispatchEntry = {
+      ...entry,
+      rejectionCount: newRejectionCount,
+      lastRejectedAt: Date.now(),
+      rejectedByMotoboyIds: rejectedIds,
+      cooldownByMotoboyId: cooldowns,
+    };
+
+    // Persist updated rejection state to DB
+    const route = latestRef.current.pendingRoutes.find(r => r.id === routeId);
+    api('PUT', `/api/dispatch-queue/${routeId}`, {
+      ...updatedEntry,
+      storeId: route?.storeId ?? '',
+      routeType: route?.routeType ?? 'single',
     });
+
+    setDispatchQueue(prev => prev.map(e => e.routeId !== routeId ? e : updatedEntry));
   };
 
   const acceptDispatch = (routeId: string) => {
@@ -584,6 +622,9 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     ]);
     setPendingRoutes(prev => prev.filter(r => r.id !== routeId));
     setDispatchQueue(prev => prev.filter(e => e.routeId !== routeId));
+
+    // Remove from DB — route is now being handled by this motoboy
+    api('DELETE', `/api/dispatch-queue/${routeId}`);
   };
 
   const addOrderToActiveRoute = (routeId: string, orderId: string) => {
@@ -601,6 +642,9 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     const entry = queue.find(e => e.routeId === routeId);
     const orderIds = entry?.orderIds ?? [];
     const storeId = orders.find(o => orderIds.includes(o.id))?.storeId ?? '';
+
+    // Remove from DB — route timed out and will be re-queued via grouping slots
+    api('DELETE', `/api/dispatch-queue/${routeId}`);
 
     setDispatchQueue(prev => prev.filter(e => e.routeId !== routeId));
     setPendingRoutes(prev => prev.filter(r => r.id !== routeId));
