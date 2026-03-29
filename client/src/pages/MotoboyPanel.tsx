@@ -23,9 +23,6 @@ import { Badge } from '@/components/ui/badge';
 import { useSupport, MOTOBOY_SUPPORT_OPTIONS, MOTOBOY_ENTREGA_SUPPORT_OPTIONS, MOTOBOY_CHEGADA_SUPPORT_OPTIONS, SupportCategory } from '@/contexts/SupportContext';
 import { authApi } from '@/lib/authFetch';
 
-const MOTOBOY_ID = 'motoboy-1';
-const MOTOBOY_NAME = '🏍️ Motoboy';
-
 function MotoboySupportModal({
   onClose,
   orderId,
@@ -35,8 +32,11 @@ function MotoboySupportModal({
   orderId?: string;
   options?: { emoji: string; label: SupportCategory; description: string }[];
 }) {
+  const { user } = useAuth();
+  const motoboyId = user?.id ?? '';
+  const motoboyName = user?.name ?? '🏍️ Motoboy';
   const { submitMotoboyTicket, sendMessage, getMotoboyActiveTicket } = useSupport();
-  const activeTicket = getMotoboyActiveTicket(MOTOBOY_ID);
+  const activeTicket = getMotoboyActiveTicket(motoboyId);
 
   const [step, setStep] = useState<'menu' | 'form' | 'sent' | 'chat'>(() => {
     if (activeTicket) return activeTicket.status === 'in_chat' ? 'chat' : 'sent';
@@ -59,12 +59,12 @@ function MotoboySupportModal({
 
   const handleSubmit = () => {
     if (!selectedCategory || !messageText.trim()) return;
-    submitMotoboyTicket(MOTOBOY_ID, MOTOBOY_NAME, selectedCategory, messageText.trim(), orderId);
+    submitMotoboyTicket(motoboyId, motoboyName, selectedCategory, messageText.trim(), orderId);
     setStep('sent');
   };
 
   const handleSendMessage = () => {
-    const ticket = getMotoboyActiveTicket(MOTOBOY_ID);
+    const ticket = getMotoboyActiveTicket(motoboyId);
     if (!ticket || !chatInput.trim()) return;
     sendMessage(ticket.id, 'motoboy', chatInput.trim());
     setChatInput('');

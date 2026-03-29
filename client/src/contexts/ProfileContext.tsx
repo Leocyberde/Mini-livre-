@@ -140,12 +140,13 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
         });
         setAllClients(updated);
 
-        const savedClientId = localStorage.getItem('active-client-id');
+        const clientStorageKey = `active-client-id_${user.id}`;
+        const savedClientId = localStorage.getItem(clientStorageKey);
         const savedIdx = savedClientId ? updated.findIndex(c => c.id === savedClientId) : -1;
         const activeIdx = savedIdx >= 0 ? savedIdx : updated.findIndex(c => c.isActive);
         const finalIdx = activeIdx >= 0 ? activeIdx : 0;
         setActiveClientIndex(finalIdx);
-        localStorage.setItem('active-client-id', updated[finalIdx]?.id || user.id);
+        localStorage.setItem(clientStorageKey, updated[finalIdx]?.id || user.id);
       } else {
         // Seed from auth user's registration data
         const userAddress: SavedAddress | null = user.address?.cep && user.address?.numero
@@ -173,7 +174,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 
         setAllClients([newProfile]);
         setActiveClientIndex(0);
-        localStorage.setItem('active-client-id', user.id);
+        localStorage.setItem(`active-client-id_${user.id}`, user.id);
         api('PUT', '/api/profiles/clients', [{ ...newProfile, isActive: true }]);
       }
     }).catch(console.error);
@@ -261,8 +262,8 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     if (index < 0 || index >= allClients.length) return;
     setActiveClientIndex(index);
     const client = allClients[index];
-    if (client) {
-      localStorage.setItem('active-client-id', client.id);
+    if (client && user) {
+      localStorage.setItem(`active-client-id_${user.id}`, client.id);
     }
     persistClients(allClients, index);
     window.dispatchEvent(new CustomEvent('clientChanged', { detail: { clientId: client?.id } }));

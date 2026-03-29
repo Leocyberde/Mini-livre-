@@ -276,6 +276,8 @@ router.get('/orders', requireAuth, async (req, res) => {
     const isSeller = jwtUser.roles.includes('seller');
     let r;
 
+    const isMotoboy = jwtUser.roles.includes('motoboy');
+
     if (clientId && clientId !== 'undefined' && clientId !== 'null' && clientId !== '') {
       // Modo cliente: filtra pelos pedidos do próprio cliente
       r = await pool.query('SELECT * FROM orders WHERE client_id = $1 ORDER BY created_at DESC', [clientId]);
@@ -285,6 +287,15 @@ router.get('/orders', requireAuth, async (req, res) => {
     } else if (isSeller) {
       // Vendedor vê somente os pedidos da própria loja (store_id = userId)
       r = await pool.query('SELECT * FROM orders WHERE store_id = $1 ORDER BY created_at DESC', [jwtUser.id]);
+    } else if (isMotoboy) {
+      // Motoboy vê: pedidos aguardando entrega sem motoboy atribuído OU pedidos atribuídos a ele
+      r = await pool.query(
+        `SELECT * FROM orders WHERE
+          (status = 'waiting_motoboy' AND (motoboy_id IS NULL OR motoboy_id = $1))
+          OR motoboy_id = $1
+        ORDER BY created_at DESC`,
+        [jwtUser.id]
+      );
     } else {
       // Fallback: retorna somente pedidos do próprio usuário como cliente
       r = await pool.query('SELECT * FROM orders WHERE client_id = $1 ORDER BY created_at DESC', [jwtUser.id]);
@@ -327,10 +338,22 @@ router.post('/orders', requireAuth, async (req, res) => {
 router.put('/orders/:id/status', requireRole('seller', 'admin', 'motoboy'), async (req, res) => {
   try {
     const { status, statusHistory, deliveredAt } = req.body;
-    await pool.query(
-      `UPDATE orders SET status=$1, updated_at=$2, status_history=$3, delivered_at=$4 WHERE id=$5`,
-      [status, new Date().toISOString(), JSON.stringify(statusHistory ?? []), deliveredAt ?? null, req.params.id]
-    );
+    const jwtUser = req.jwtUser!;
+    const isMotoboy = jwtUser.roles.includes('motoboy') && !jwtUser.roles.includes('admin');
+    const motoboyStatuses = ['motoboy_accepted', 'picked_up', 'motoboy_at_store', 'on_the_way', 'motoboy_arrived', 'delivered'];
+
+    if (isMotoboy && motoboyStatuses.includes(status)) {
+      // Atribui o motoboy_id ao pedido no primeiro status de aceite e mantém nos seguintes
+      await pool.query(
+        `UPDATE orders SET status=$1, updated_at=$2, status_history=$3, delivered_at=$4, motoboy_id=$5 WHERE id=$6`,
+        [status, new Date().toISOString(), JSON.stringify(statusHistory ?? []), deliveredAt ?? null, jwtUser.id, req.params.id]
+      );
+    } else {
+      await pool.query(
+        `UPDATE orders SET status=$1, updated_at=$2, status_history=$3, delivered_at=$4 WHERE id=$5`,
+        [status, new Date().toISOString(), JSON.stringify(statusHistory ?? []), deliveredAt ?? null, req.params.id]
+      );
+    }
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -387,6 +410,7 @@ function mapOrder(row: Record<string, unknown>) {
     statusHistory: row.status_history,
     deliveredAt: row.delivered_at,
     seenBySeller: row.seen_by_seller,
+    motoboyId: row.motoboy_id ?? undefined,
   };
 }
 
@@ -394,13 +418,20 @@ function mapOrder(row: Record<string, unknown>) {
 
 router.get('/cart', requireAuth, async (req, res) => {
   try {
-    const { clientId } = req.query;
-    let r;
-    if (clientId && clientId !== 'undefined') {
-      r = await pool.query('SELECT * FROM cart_items WHERE client_id = $1 ORDER BY id', [clientId]);
-    } else {
-      r = await pool.query('SELECT * FROM cart_items ORDER BY id');
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    // Para clientes, sempre usa o próprio userId — nunca aceita clientId de fora
+    // Para admin, permite clientId via query para gerenciar qualquer carrinho
+    const { clientId: qClientId } = req.query;
+    const clientId = isAdmin
+      ? (typeof qClientId === 'string' && qClientId !== 'undefined' ? qClientId : null)
+      : jwtUser.id;
+
+    if (!clientId) {
+      return res.json([]);
     }
+
+    const r = await pool.query('SELECT * FROM cart_items WHERE client_id = $1 ORDER BY id', [clientId]);
     res.json(r.rows.map(row => ({
       productId: row.product_id,
       storeId: row.store_id,
@@ -415,25 +446,24 @@ router.get('/cart', requireAuth, async (req, res) => {
 
 router.put('/cart', requireAuth, async (req, res) => {
   try {
-    const { clientId } = req.query;
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    const { clientId: qClientId } = req.query;
+    const clientId = isAdmin
+      ? (typeof qClientId === 'string' && qClientId !== 'undefined' ? qClientId : null)
+      : jwtUser.id;
+
+    if (!clientId) {
+      return res.status(400).json({ error: 'clientId is required' });
+    }
+
     const items: Array<{ productId: string; storeId: string; quantity: number; price: number }> = req.body;
-    
-    if (clientId && clientId !== 'undefined') {
-      await pool.query('DELETE FROM cart_items WHERE client_id = $1', [clientId]);
-      for (const item of items) {
-        await pool.query(`
-          INSERT INTO cart_items (product_id, store_id, quantity, price, client_id)
-          VALUES ($1, $2, $3, $4, $5)
-        `, [item.productId, item.storeId, item.quantity, item.price, clientId]);
-      }
-    } else {
-      await pool.query('DELETE FROM cart_items');
-      for (const item of items) {
-        await pool.query(`
-          INSERT INTO cart_items (product_id, store_id, quantity, price)
-          VALUES ($1, $2, $3, $4)
-        `, [item.productId, item.storeId, item.quantity, item.price]);
-      }
+    await pool.query('DELETE FROM cart_items WHERE client_id = $1', [clientId]);
+    for (const item of items) {
+      await pool.query(`
+        INSERT INTO cart_items (product_id, store_id, quantity, price, client_id)
+        VALUES ($1, $2, $3, $4, $5)
+      `, [item.productId, item.storeId, item.quantity, item.price, clientId]);
     }
     res.json({ ok: true });
   } catch (err) {

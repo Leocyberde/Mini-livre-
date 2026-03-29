@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import type { MotoboyStatus } from '@/lib/mockData';
+import { useAuth } from '@/contexts/AuthContext';
 
 export type { MotoboyStatus };
 
@@ -17,6 +18,63 @@ export interface MotoboyNotification {
   message: string;
   time: Date;
   read: boolean;
+}
+
+interface PersistedState {
+  status: MotoboyStatus;
+  completedRoutes: CompletedRoute[];
+  notifications: MotoboyNotification[];
+  totalRejectedRides: number;
+  currentRoute: CompletedRoute | null;
+  screenPhase: 'coleta' | 'pickup' | 'conclude' | 'entrega' | 'chegada_entrega' | null;
+  activeOrderId: string | null;
+  balanceVisible: boolean;
+}
+
+const DEFAULT_STATE: PersistedState = {
+  status: 'unavailable',
+  completedRoutes: [],
+  notifications: [],
+  totalRejectedRides: 0,
+  currentRoute: null,
+  screenPhase: null,
+  activeOrderId: null,
+  balanceVisible: true,
+};
+
+function storageKey(userId: string) {
+  return `motoboy_session_${userId}`;
+}
+
+function loadState(userId: string): PersistedState {
+  try {
+    const raw = localStorage.getItem(storageKey(userId));
+    if (!raw) return DEFAULT_STATE;
+    const parsed = JSON.parse(raw);
+    return {
+      ...DEFAULT_STATE,
+      ...parsed,
+      completedRoutes: (parsed.completedRoutes ?? []).map((r: CompletedRoute) => ({
+        ...r,
+        completedAt: new Date(r.completedAt),
+      })),
+      notifications: (parsed.notifications ?? []).map((n: MotoboyNotification) => ({
+        ...n,
+        time: new Date(n.time),
+      })),
+      currentRoute: parsed.currentRoute
+        ? { ...parsed.currentRoute, completedAt: new Date(parsed.currentRoute.completedAt) }
+        : null,
+    };
+  } catch {
+    return DEFAULT_STATE;
+  }
+}
+
+function saveState(userId: string, state: PersistedState) {
+  try {
+    localStorage.setItem(storageKey(userId), JSON.stringify(state));
+  } catch {}
 }
 
 interface MotoboyContextType {
@@ -56,15 +114,30 @@ interface MotoboyContextType {
 const MotoboyContext = createContext<MotoboyContextType | undefined>(undefined);
 
 export function MotoboyProvider({ children }: { children: React.ReactNode }) {
-  const [status, setStatusState] = useState<MotoboyStatus>('unavailable');
+  const { user } = useAuth();
+  const userId = user?.id ?? '';
+
+  const [persisted, setPersistedRaw] = useState<PersistedState>(() =>
+    userId ? loadState(userId) : DEFAULT_STATE
+  );
+
   const [locationEnabled, setLocationEnabled] = useState(false);
-  const [balanceVisible, setBalanceVisible] = useState(true);
-  const [completedRoutes, setCompletedRoutes] = useState<CompletedRoute[]>([]);
-  const [notifications, setNotifications] = useState<MotoboyNotification[]>([]);
-  const [currentRoute, setCurrentRoute] = useState<CompletedRoute | null>(null);
-  const [totalRejectedRides, setTotalRejectedRides] = useState(0);
-  const [screenPhase, setScreenPhase] = useState<'coleta' | 'pickup' | 'conclude' | 'entrega' | 'chegada_entrega' | null>(null);
-  const [activeOrderId, setActiveOrderId] = useState<string | null>(null);
+
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+
+  useEffect(() => {
+    if (!userId) return;
+    setPersistedRaw(loadState(userId));
+  }, [userId]);
+
+  function setPersisted(updater: (prev: PersistedState) => PersistedState) {
+    setPersistedRaw(prev => {
+      const next = updater(prev);
+      if (userIdRef.current) saveState(userIdRef.current, next);
+      return next;
+    });
+  }
 
   useEffect(() => {
     if ('geolocation' in navigator) {
@@ -85,122 +158,178 @@ export function MotoboyProvider({ children }: { children: React.ReactNode }) {
 
   const setStatus = (s: MotoboyStatus) => {
     if (s === 'available' && !locationEnabled) return;
-    setStatusState(s);
+    setPersisted(prev => ({ ...prev, status: s }));
   };
 
   const finishRoute = () => {
-    if (!currentRoute) return;
-    const finished: CompletedRoute = { ...currentRoute, completedAt: new Date() };
-    setCompletedRoutes(prev => [finished, ...prev]);
-    setCurrentRoute(null);
-    setStatusState('available');
-    setScreenPhase(null);
-    setActiveOrderId(null);
+    setPersisted(prev => {
+      if (!prev.currentRoute) return prev;
+      const finished: CompletedRoute = { ...prev.currentRoute, completedAt: new Date() };
+      return {
+        ...prev,
+        completedRoutes: [finished, ...prev.completedRoutes],
+        currentRoute: null,
+        status: 'available',
+        screenPhase: null,
+        activeOrderId: null,
+      };
+    });
   };
 
   const cancelRoute = () => {
-    setCurrentRoute(null);
-    setStatusState('available');
-    setScreenPhase(null);
-    setActiveOrderId(null);
+    setPersisted(prev => ({
+      ...prev,
+      currentRoute: null,
+      status: 'available',
+      screenPhase: null,
+      activeOrderId: null,
+    }));
   };
 
   const startRoute = (route: { from: string; to: string; value: number; storeAddress?: string }) => {
-    setCurrentRoute({
-      id: `route-${Date.now()}`,
-      completedAt: new Date(),
-      from: route.from,
-      to: route.to,
-      value: route.value,
-      storeAddress: route.storeAddress,
-    });
-    setStatusState('on_route');
+    setPersisted(prev => ({
+      ...prev,
+      currentRoute: {
+        id: `route-${Date.now()}`,
+        completedAt: new Date(),
+        from: route.from,
+        to: route.to,
+        value: route.value,
+        storeAddress: route.storeAddress,
+      },
+      status: 'on_route',
+    }));
   };
 
   const addValueToCurrentRoute = (amount: number) => {
-    setCurrentRoute(prev => prev ? { ...prev, value: prev.value + amount } : prev);
+    setPersisted(prev => ({
+      ...prev,
+      currentRoute: prev.currentRoute
+        ? { ...prev.currentRoute, value: prev.currentRoute.value + amount }
+        : prev.currentRoute,
+    }));
   };
 
-  const toggleBalanceVisible = () => setBalanceVisible(v => !v);
+  const toggleBalanceVisible = () => {
+    setPersisted(prev => ({ ...prev, balanceVisible: !prev.balanceVisible }));
+  };
 
   const addRejection = () => {
-    setTotalRejectedRides(n => n + 1);
+    setPersisted(prev => ({ ...prev, totalRejectedRides: prev.totalRejectedRides + 1 }));
   };
 
-  const completeOrderDelivery = (order: { id: string; total: number; storeName?: string; storeId?: string; deliveryAddress?: { logradouro: string; numero: string; bairro: string; cidade: string } }) => {
+  const setScreenPhase = (phase: PersistedState['screenPhase']) => {
+    setPersisted(prev => ({ ...prev, screenPhase: phase }));
+  };
+
+  const setActiveOrderId = (id: string | null) => {
+    setPersisted(prev => ({ ...prev, activeOrderId: id }));
+  };
+
+  const completeOrderDelivery = (order: {
+    id: string;
+    total: number;
+    storeName?: string;
+    storeId?: string;
+    deliveryAddress?: { logradouro: string; numero: string; bairro: string; cidade: string };
+  }) => {
     const deliveryFee = Math.max(5, parseFloat((order.total * 0.08).toFixed(2)));
     const fromLabel = order.storeName || order.storeId || 'Loja';
     const toLabel = order.deliveryAddress
       ? `${order.deliveryAddress.logradouro}, ${order.deliveryAddress.numero} — ${order.deliveryAddress.bairro}`
       : 'Endereço do cliente';
 
-    if (activeOrderId === order.id && currentRoute) {
-      const finished: CompletedRoute = { ...currentRoute, completedAt: new Date(), value: currentRoute.value || deliveryFee };
-      setCompletedRoutes(prev => [finished, ...prev]);
-      setCurrentRoute(null);
-      setStatusState('available');
-      setScreenPhase(null);
-      setActiveOrderId(null);
-    } else {
-      const newRoute: CompletedRoute = {
-        id: `admin-${order.id}`,
-        completedAt: new Date(),
-        value: deliveryFee,
-        from: fromLabel,
-        to: toLabel,
-      };
-      setCompletedRoutes(prev => {
-        const alreadyExists = prev.some(r => r.id === `admin-${order.id}`);
-        if (alreadyExists) return prev;
-        return [newRoute, ...prev];
-      });
-    }
+    setPersisted(prev => {
+      let newRoutes = prev.completedRoutes;
+      let newCurrent = prev.currentRoute;
+      let newStatus = prev.status;
+      let newPhase = prev.screenPhase;
+      let newActiveId = prev.activeOrderId;
 
-    setNotifications(prev => [{
-      id: `notif-admin-${order.id}`,
-      message: `Pedido #${order.id.slice(-5).toUpperCase()} marcado como entregue pelo admin. Ganho: R$ ${deliveryFee.toFixed(2)}`,
-      time: new Date(),
-      read: false,
-    }, ...prev]);
+      if (prev.activeOrderId === order.id && prev.currentRoute) {
+        const finished: CompletedRoute = {
+          ...prev.currentRoute,
+          completedAt: new Date(),
+          value: prev.currentRoute.value || deliveryFee,
+        };
+        newRoutes = [finished, ...prev.completedRoutes];
+        newCurrent = null;
+        newStatus = 'available';
+        newPhase = null;
+        newActiveId = null;
+      } else {
+        const alreadyExists = prev.completedRoutes.some(r => r.id === `admin-${order.id}`);
+        if (!alreadyExists) {
+          newRoutes = [
+            { id: `admin-${order.id}`, completedAt: new Date(), value: deliveryFee, from: fromLabel, to: toLabel },
+            ...prev.completedRoutes,
+          ];
+        }
+      }
+
+      const newNotif: MotoboyNotification = {
+        id: `notif-admin-${order.id}`,
+        message: `Pedido #${order.id.slice(-5).toUpperCase()} marcado como entregue pelo admin. Ganho: R$ ${deliveryFee.toFixed(2)}`,
+        time: new Date(),
+        read: false,
+      };
+
+      return {
+        ...prev,
+        completedRoutes: newRoutes,
+        currentRoute: newCurrent,
+        status: newStatus,
+        screenPhase: newPhase,
+        activeOrderId: newActiveId,
+        notifications: [newNotif, ...prev.notifications],
+      };
+    });
   };
 
   const resetSession = () => {
-    setStatusState('unavailable');
-    setCompletedRoutes([]);
-    setNotifications([]);
-    setCurrentRoute(null);
-    setTotalRejectedRides(0);
-    setScreenPhase(null);
-    setActiveOrderId(null);
+    const next = DEFAULT_STATE;
+    if (userId) saveState(userId, next);
+    setPersistedRaw(next);
   };
 
   const cancelOrderDelivery = (orderId: string) => {
-    if (activeOrderId === orderId) {
-      setCurrentRoute(null);
-      setStatusState('available');
-      setScreenPhase(null);
-      setActiveOrderId(null);
-    }
-    setNotifications(prev => [{
-      id: `notif-cancel-${orderId}`,
-      message: `Pedido #${orderId.slice(-5).toUpperCase()} foi cancelado pelo administrador.`,
-      time: new Date(),
-      read: false,
-    }, ...prev]);
+    setPersisted(prev => {
+      const wasActive = prev.activeOrderId === orderId;
+      const newNotif: MotoboyNotification = {
+        id: `notif-cancel-${orderId}`,
+        message: `Pedido #${orderId.slice(-5).toUpperCase()} foi cancelado pelo administrador.`,
+        time: new Date(),
+        read: false,
+      };
+      return {
+        ...prev,
+        currentRoute: wasActive ? null : prev.currentRoute,
+        status: wasActive ? 'available' : prev.status,
+        screenPhase: wasActive ? null : prev.screenPhase,
+        activeOrderId: wasActive ? null : prev.activeOrderId,
+        notifications: [newNotif, ...prev.notifications],
+      };
+    });
   };
 
   const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    setPersisted(prev => ({
+      ...prev,
+      notifications: prev.notifications.map(n => ({ ...n, read: true })),
+    }));
   };
 
   const addMotoboyNotification = (message: string) => {
-    setNotifications(prev => [{
-      id: `admin-notif-${Date.now()}`,
-      message,
-      time: new Date(),
-      read: false,
-    }, ...prev]);
+    setPersisted(prev => ({
+      ...prev,
+      notifications: [
+        { id: `admin-notif-${Date.now()}`, message, time: new Date(), read: false },
+        ...prev.notifications,
+      ],
+    }));
   };
+
+  const { completedRoutes, notifications, totalRejectedRides, currentRoute, screenPhase, activeOrderId, balanceVisible, status } = persisted;
 
   const unreadCount = notifications.filter(n => !n.read).length;
 

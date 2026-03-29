@@ -80,6 +80,7 @@ export interface Order {
   storeCoords?: [number, number];
   statusHistory?: { status: string; timestamp: string }[];
   deliveredAt?: string;
+  motoboyId?: string;
 }
 
 export const mockStoreCoords: Record<string, [number, number]> = {};

@@ -195,6 +195,7 @@ export async function initDb() {
 
       -- Client isolation columns (idempotent)
       ALTER TABLE orders ADD COLUMN IF NOT EXISTS client_id TEXT;
+      ALTER TABLE orders ADD COLUMN IF NOT EXISTS motoboy_id TEXT;
       ALTER TABLE cart_items ADD COLUMN IF NOT EXISTS client_id TEXT NOT NULL DEFAULT '';
 
       -- Product multiple images (idempotent)

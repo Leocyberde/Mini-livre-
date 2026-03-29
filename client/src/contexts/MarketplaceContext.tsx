@@ -8,6 +8,7 @@ import { CartItem, Order, mockStoreCoords } from '@/lib/mockData';
 import { useNotification } from './NotificationContext';
 import { calcMotoRideValue, calcDoubleRouteValues } from '@/lib/deliveryCalc';
 import { authFetch, authApi } from '@/lib/authFetch';
+import { useAuth } from '@/contexts/AuthContext';
 
 export type UserMode = 'client' | 'seller' | 'admin' | 'motoboy';
 
@@ -100,6 +101,8 @@ async function api(method: string, path: string, body?: unknown) {
 
 export function MarketplaceProvider({ children }: { children: React.ReactNode }) {
   const { addNotification } = useNotification();
+  const { user } = useAuth();
+  const activeClientKey = () => user?.id ? `active-client-id_${user.id}` : null;
   const [mode, setMode] = useState<UserMode>(() => {
     return (localStorage.getItem('marketplace-mode') as UserMode) || 'client';
   });
@@ -128,7 +131,8 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
 
   // Core fetch function for orders and cart
   const fetchOrdersAndCart = (currentMode: string) => {
-    const clientId = localStorage.getItem('active-client-id');
+    const key = activeClientKey();
+    const clientId = key ? localStorage.getItem(key) : null;
     const isClient = currentMode === 'client';
 
     const ordersUrl = (isClient && clientId && clientId !== 'undefined') ? `/api/orders?clientId=${clientId}` : '/api/orders';
@@ -279,7 +283,8 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   // ── Cart operations ──────────────────────────────────────────────────────────
 
   const syncCart = (newCart: CartItem[]) => {
-    const clientId = localStorage.getItem('active-client-id');
+    const key = activeClientKey();
+    const clientId = key ? localStorage.getItem(key) : null;
     const url = clientId ? `/api/cart?clientId=${clientId}` : '/api/cart';
     api('PUT', url, newCart);
   };
@@ -452,7 +457,8 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   // ── Order operations ──────────────────────────────────────────────────────────
 
   const addClientOrder = (order: Order) => {
-    const clientId = localStorage.getItem('active-client-id');
+    const key = activeClientKey();
+    const clientId = key ? localStorage.getItem(key) : null;
     const orderWithClient = { ...order, clientId };
     
     // Atualiza estados locais

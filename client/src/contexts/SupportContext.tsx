@@ -3,6 +3,7 @@
  */
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNotification } from './NotificationContext';
+import { useAuth } from './AuthContext';
 
 export type SupportCategory =
   | 'Problemas com pedidos'
@@ -82,16 +83,35 @@ const STORAGE_KEY = 'marketplace-support-tickets';
 
 export function SupportProvider({ children }: { children: React.ReactNode }) {
   const { addNotification } = useNotification();
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const { user } = useAuth();
+  const isAdmin = user?.roles?.includes('admin') ?? false;
+
+  // allTickets holds every ticket from every user (required so admin sees all)
+  const [allTickets, setAllTickets] = useState<SupportTicket[]>([]);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) setTickets(JSON.parse(saved));
+    if (saved) {
+      try { setAllTickets(JSON.parse(saved)); } catch {}
+    }
   }, []);
 
-  const persist = (next: SupportTicket[]) => {
-    setTickets(next);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  // What context consumers see: admin sees all; others see only their own tickets
+  const tickets: SupportTicket[] = isAdmin
+    ? allTickets
+    : allTickets.filter(t => t.storeId === (user?.id ?? '__none__'));
+
+  // Persist: non-admin operations only touch their own tickets,
+  // other users' tickets are preserved in the full list
+  const persist = (updatedUserTickets: SupportTicket[]) => {
+    const merged = isAdmin
+      ? updatedUserTickets
+      : [
+          ...allTickets.filter(t => t.storeId !== (user?.id ?? '__none__')),
+          ...updatedUserTickets,
+        ];
+    setAllTickets(merged);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
   };
 
   const submitTicket = (storeId: string, storeName: string, category: SupportCategory, message: string) => {
@@ -123,8 +143,7 @@ export function SupportProvider({ children }: { children: React.ReactNode }) {
       submitterName,
       orderId,
     };
-    const next = [...tickets, ticket];
-    persist(next);
+    persist([...tickets, ticket]);
     addNotification({
       target: 'seller',
       icon: '🏍️',
@@ -136,21 +155,22 @@ export function SupportProvider({ children }: { children: React.ReactNode }) {
   };
 
   const startChat = (ticketId: string) => {
-    const ticket = tickets.find(t => t.id === ticketId);
+    const ticket = allTickets.find(t => t.id === ticketId);
     const welcomeMsg: SupportMessage = {
       id: `msg-${Date.now()}`,
       sender: 'admin',
       text: 'Um atendente entrou no chat para te ajudar!',
       timestamp: new Date().toISOString(),
     };
-    persist(tickets.map(t =>
+    // Admin operates on allTickets directly (they can start chat on any ticket)
+    const merged = allTickets.map(t =>
       t.id === ticketId
-        ? { ...t, status: 'in_chat', chat: [...t.chat, welcomeMsg] }
+        ? { ...t, status: 'in_chat' as const, chat: [...t.chat, welcomeMsg] }
         : t
-    ));
-    if (ticket?.submitterType === 'motoboy') {
-      // No seller notification needed for motoboy tickets; motoboy sees chat in panel
-    } else {
+    );
+    setAllTickets(merged);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    if (ticket?.submitterType !== 'motoboy') {
       addNotification({
         target: 'seller',
         icon: '💬',
@@ -161,40 +181,42 @@ export function SupportProvider({ children }: { children: React.ReactNode }) {
   };
 
   const sendMessage = (ticketId: string, sender: 'seller' | 'admin' | 'motoboy', text: string) => {
-    const ticket = tickets.find(t => t.id === ticketId);
+    const ticket = allTickets.find(t => t.id === ticketId);
     const msg: SupportMessage = {
       id: `msg-${Date.now()}-${Math.random()}`,
       sender,
       text,
       timestamp: new Date().toISOString(),
     };
-    persist(tickets.map(t =>
+    const merged = allTickets.map(t =>
       t.id === ticketId ? { ...t, chat: [...t.chat, msg] } : t
-    ));
-    if (sender === 'admin') {
-      if (ticket?.submitterType !== 'motoboy') {
-        addNotification({
-          target: 'seller',
-          icon: '💬',
-          title: 'Nova mensagem de suporte',
-          body: text.length > 60 ? text.slice(0, 60) + '…' : text,
-        });
-      }
+    );
+    setAllTickets(merged);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+    if (sender === 'admin' && ticket?.submitterType !== 'motoboy') {
+      addNotification({
+        target: 'seller',
+        icon: '💬',
+        title: 'Nova mensagem de suporte',
+        body: text.length > 60 ? text.slice(0, 60) + '…' : text,
+      });
     }
   };
 
   const resolveTicket = (ticketId: string) => {
-    persist(tickets.map(t =>
-      t.id === ticketId ? { ...t, status: 'resolved' } : t
-    ));
+    const merged = allTickets.map(t =>
+      t.id === ticketId ? { ...t, status: 'resolved' as const } : t
+    );
+    setAllTickets(merged);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
   };
 
   const getSellerActiveTicket = (storeId: string): SupportTicket | null => {
-    return tickets.find(t => t.storeId === storeId && t.submitterType !== 'motoboy' && t.status !== 'resolved') ?? null;
+    return allTickets.find(t => t.storeId === storeId && t.submitterType !== 'motoboy' && t.status !== 'resolved') ?? null;
   };
 
   const getMotoboyActiveTicket = (submitterId: string): SupportTicket | null => {
-    return tickets.find(t => t.storeId === submitterId && t.submitterType === 'motoboy' && t.status !== 'resolved') ?? null;
+    return allTickets.find(t => t.storeId === submitterId && t.submitterType === 'motoboy' && t.status !== 'resolved') ?? null;
   };
 
   return (
