@@ -359,7 +359,7 @@ router.post('/orders', requireAuth, async (req, res) => {
 
 router.put('/orders/:id/status', requireRole('seller', 'admin', 'motoboy'), async (req, res) => {
   try {
-    const { status, statusHistory, deliveredAt } = req.body;
+    const { status, statusHistory, deliveredAt, motoRideValue } = req.body;
     const jwtUser = req.jwtUser!;
     const isMotoboy = jwtUser.roles.includes('motoboy') && !jwtUser.roles.includes('admin');
     const isSeller = jwtUser.roles.includes('seller') && !jwtUser.roles.includes('admin');
@@ -399,13 +399,17 @@ router.put('/orders/:id/status', requireRole('seller', 'admin', 'motoboy'), asyn
       }
 
       await pool.query(
-        `UPDATE orders SET status=$1, updated_at=$2, status_history=$3, delivered_at=$4, motoboy_id=$5 WHERE id=$6`,
-        [status, new Date().toISOString(), JSON.stringify(statusHistory ?? []), deliveredAt ?? null, jwtUser.id, req.params.id]
+        `UPDATE orders SET status=$1, updated_at=$2, status_history=$3, delivered_at=$4, motoboy_id=$5${motoRideValue != null ? ', moto_ride_value=$7' : ''} WHERE id=$6`,
+        motoRideValue != null
+          ? [status, new Date().toISOString(), JSON.stringify(statusHistory ?? []), deliveredAt ?? null, jwtUser.id, req.params.id, motoRideValue]
+          : [status, new Date().toISOString(), JSON.stringify(statusHistory ?? []), deliveredAt ?? null, jwtUser.id, req.params.id]
       );
     } else {
       await pool.query(
-        `UPDATE orders SET status=$1, updated_at=$2, status_history=$3, delivered_at=$4 WHERE id=$5`,
-        [status, new Date().toISOString(), JSON.stringify(statusHistory ?? []), deliveredAt ?? null, req.params.id]
+        `UPDATE orders SET status=$1, updated_at=$2, status_history=$3, delivered_at=$4${motoRideValue != null ? ', moto_ride_value=$6' : ''} WHERE id=$5`,
+        motoRideValue != null
+          ? [status, new Date().toISOString(), JSON.stringify(statusHistory ?? []), deliveredAt ?? null, req.params.id, motoRideValue]
+          : [status, new Date().toISOString(), JSON.stringify(statusHistory ?? []), deliveredAt ?? null, req.params.id]
       );
     }
     res.json({ ok: true });
@@ -691,6 +695,49 @@ function mapMotoboy(row: Record<string, unknown>) {
     isActiveSession: row.is_active_session,
   };
 }
+
+// ─── MOTOBOY ROUTES HISTORY ───────────────────────────────────────────────────
+
+router.get('/motoboy/routes', requireRole('motoboy', 'admin'), async (req, res) => {
+  try {
+    const jwtUser = req.jwtUser!;
+    const r = await pool.query(
+      'SELECT * FROM motoboy_routes WHERE motoboy_user_id = $1 ORDER BY completed_at DESC',
+      [jwtUser.id]
+    );
+    res.json(r.rows.map(row => ({
+      id: row.id,
+      completedAt: row.completed_at,
+      value: Number(row.value),
+      from: row.from_label,
+      to: row.to_label,
+      storeAddress: row.store_address ?? undefined,
+    })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post('/motoboy/routes', requireRole('motoboy', 'admin'), async (req, res) => {
+  try {
+    const jwtUser = req.jwtUser!;
+    const { id, completedAt, value, from, to, storeAddress } = req.body;
+    if (!id || !completedAt || value == null || !from || !to) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    await pool.query(
+      `INSERT INTO motoboy_routes (id, motoboy_user_id, completed_at, value, from_label, to_label, store_address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (id) DO NOTHING`,
+      [id, jwtUser.id, new Date(completedAt), value, from, to, storeAddress ?? null]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // ─── DISPATCH QUEUE ───────────────────────────────────────────────────────────
 

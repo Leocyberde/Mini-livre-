@@ -366,7 +366,7 @@ export default function ClientPanel() {
                         className="bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer active:scale-[0.98] flex flex-col"
                       >
                         {/* Image */}
-                        <div className="relative aspect-square bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center text-3xl overflow-hidden">
+                        <div className="relative h-20 bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center text-2xl overflow-hidden">
                           {product.imageUrl ? (
                             <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
                           ) : (

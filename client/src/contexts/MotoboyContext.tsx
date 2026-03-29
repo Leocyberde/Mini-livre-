@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import type { MotoboyStatus } from '@/lib/mockData';
 import { useAuth } from '@/contexts/AuthContext';
+import { authFetch, authApi } from '@/lib/authFetch';
 
 export type { MotoboyStatus };
 
@@ -126,9 +127,36 @@ export function MotoboyProvider({ children }: { children: React.ReactNode }) {
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
 
+  const persistedRef = useRef(persisted);
+  persistedRef.current = persisted;
+
   useEffect(() => {
     if (!userId) return;
     setPersistedRaw(loadState(userId));
+  }, [userId]);
+
+  // Load completed routes from the server on mount / userId change
+  useEffect(() => {
+    if (!userId) return;
+    authFetch('/api/motoboy/routes')
+      .then(r => r.ok ? r.json() : [])
+      .then((serverRoutes: Array<{ id: string; completedAt: string; value: number; from: string; to: string; storeAddress?: string }>) => {
+        if (serverRoutes.length === 0) return;
+        setPersistedRaw(prev => {
+          const localIds = new Set(prev.completedRoutes.map(r => r.id));
+          const newFromServer = serverRoutes
+            .filter(r => !localIds.has(r.id))
+            .map(r => ({ id: r.id, completedAt: new Date(r.completedAt), value: r.value, from: r.from, to: r.to, storeAddress: r.storeAddress }));
+          if (newFromServer.length === 0) return prev;
+          const merged = [...prev.completedRoutes, ...newFromServer].sort(
+            (a, b) => new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+          );
+          const next = { ...prev, completedRoutes: merged };
+          if (userId) saveState(userId, next);
+          return next;
+        });
+      })
+      .catch(console.error);
   }, [userId]);
 
   function setPersisted(updater: (prev: PersistedState) => PersistedState) {
@@ -162,9 +190,11 @@ export function MotoboyProvider({ children }: { children: React.ReactNode }) {
   };
 
   const finishRoute = () => {
+    const currentRoute = persistedRef.current.currentRoute;
+    if (!currentRoute) return;
+    const finished: CompletedRoute = { ...currentRoute, completedAt: new Date() };
     setPersisted(prev => {
       if (!prev.currentRoute) return prev;
-      const finished: CompletedRoute = { ...prev.currentRoute, completedAt: new Date() };
       return {
         ...prev,
         completedRoutes: [finished, ...prev.completedRoutes],
@@ -174,6 +204,14 @@ export function MotoboyProvider({ children }: { children: React.ReactNode }) {
         activeOrderId: null,
       };
     });
+    authApi('POST', '/api/motoboy/routes', {
+      id: finished.id,
+      completedAt: finished.completedAt.toISOString(),
+      value: finished.value,
+      from: finished.from,
+      to: finished.to,
+      storeAddress: finished.storeAddress,
+    }).catch(console.error);
   };
 
   const cancelRoute = () => {
@@ -239,31 +277,33 @@ export function MotoboyProvider({ children }: { children: React.ReactNode }) {
       ? `${order.deliveryAddress.logradouro}, ${order.deliveryAddress.numero} — ${order.deliveryAddress.bairro}`
       : 'Endereço do cliente';
 
-    setPersisted(prev => {
-      let newRoutes = prev.completedRoutes;
-      let newCurrent = prev.currentRoute;
-      let newStatus = prev.status;
-      let newPhase = prev.screenPhase;
-      let newActiveId = prev.activeOrderId;
+    let routeToSave: CompletedRoute | null = null;
 
-      if (prev.activeOrderId === order.id && prev.currentRoute) {
+    setPersisted(prevState => {
+      let newRoutes = prevState.completedRoutes;
+      let newCurrent = prevState.currentRoute;
+      let newStatus = prevState.status;
+      let newPhase = prevState.screenPhase;
+      let newActiveId = prevState.activeOrderId;
+
+      if (prevState.activeOrderId === order.id && prevState.currentRoute) {
         const finished: CompletedRoute = {
-          ...prev.currentRoute,
+          ...prevState.currentRoute,
           completedAt: new Date(),
-          value: prev.currentRoute.value || deliveryFee,
+          value: prevState.currentRoute.value || deliveryFee,
         };
-        newRoutes = [finished, ...prev.completedRoutes];
+        routeToSave = finished;
+        newRoutes = [finished, ...prevState.completedRoutes];
         newCurrent = null;
         newStatus = 'available';
         newPhase = null;
         newActiveId = null;
       } else {
-        const alreadyExists = prev.completedRoutes.some(r => r.id === `admin-${order.id}`);
+        const alreadyExists = prevState.completedRoutes.some(r => r.id === `admin-${order.id}`);
         if (!alreadyExists) {
-          newRoutes = [
-            { id: `admin-${order.id}`, completedAt: new Date(), value: deliveryFee, from: fromLabel, to: toLabel },
-            ...prev.completedRoutes,
-          ];
+          const newRoute: CompletedRoute = { id: `admin-${order.id}`, completedAt: new Date(), value: deliveryFee, from: fromLabel, to: toLabel };
+          routeToSave = newRoute;
+          newRoutes = [newRoute, ...prevState.completedRoutes];
         }
       }
 
@@ -275,15 +315,26 @@ export function MotoboyProvider({ children }: { children: React.ReactNode }) {
       };
 
       return {
-        ...prev,
+        ...prevState,
         completedRoutes: newRoutes,
         currentRoute: newCurrent,
         status: newStatus,
         screenPhase: newPhase,
         activeOrderId: newActiveId,
-        notifications: [newNotif, ...prev.notifications],
+        notifications: [newNotif, ...prevState.notifications],
       };
     });
+
+    if (routeToSave) {
+      authApi('POST', '/api/motoboy/routes', {
+        id: routeToSave.id,
+        completedAt: routeToSave.completedAt.toISOString(),
+        value: routeToSave.value,
+        from: routeToSave.from,
+        to: routeToSave.to,
+        storeAddress: routeToSave.storeAddress,
+      }).catch(console.error);
+    }
   };
 
   const resetSession = () => {

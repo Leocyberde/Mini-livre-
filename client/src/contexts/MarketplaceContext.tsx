@@ -413,7 +413,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
 
     setSellerOrders(prev => {
       const updated = prev.map(o => applyWaiting(o));
-      updated.filter(o => orderIds.includes(o.id)).forEach(o => api('PUT', `/api/orders/${o.id}/status`, { status: o.status, statusHistory: o.statusHistory }));
+      updated.filter(o => orderIds.includes(o.id)).forEach(o => api('PUT', `/api/orders/${o.id}/status`, { status: o.status, statusHistory: o.statusHistory, motoRideValue: rideValueMap.get(o.id) }));
       return updated;
     });
     setAllOrders(prev => prev.map(o => applyWaiting(o)));

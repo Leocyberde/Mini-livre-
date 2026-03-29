@@ -876,14 +876,14 @@ export default function SellerPanel() {
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pb-4">
+              <div className="grid grid-cols-3 md:grid-cols-4 gap-2 pb-4">
                 {storeProducts.map(product => (
                   <div
                     key={product.id}
-                    className={`bg-white rounded-2xl shadow-sm overflow-hidden flex flex-col ${product.frozen ? 'opacity-60' : ''}`}
+                    className={`bg-white rounded-xl shadow-sm overflow-hidden flex flex-col ${product.frozen ? 'opacity-60' : ''}`}
                   >
                     {/* Image */}
-                    <div className="relative aspect-square bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center text-4xl overflow-hidden">
+                    <div className="relative h-20 bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center text-2xl overflow-hidden">
                       {product.imageUrl ? (
                         <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
                       ) : (
@@ -899,32 +899,29 @@ export default function SellerPanel() {
                       )}
                     </div>
                     {/* Info */}
-                    <div className="p-3 flex flex-col flex-1">
-                      <p className="text-xs text-muted-foreground mb-0.5 truncate">{product.category}</p>
-                      <p className="text-sm font-semibold text-foreground line-clamp-2 leading-tight mb-2 flex-1">{product.name}</p>
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-base font-bold text-primary">R$ {product.price.toFixed(2)}</p>
-                        <p className="text-xs text-muted-foreground">Estoque: {product.stock}</p>
-                      </div>
+                    <div className="p-2 flex flex-col flex-1">
+                      <p className="text-[10px] text-muted-foreground mb-0.5 truncate">{product.category}</p>
+                      <p className="text-xs font-semibold text-foreground line-clamp-2 leading-tight mb-1 flex-1">{product.name}</p>
+                      <p className="text-sm font-bold text-primary mb-2">R$ {product.price.toFixed(2)}</p>
                       {/* Actions */}
-                      <div className="flex gap-1.5">
+                      <div className="flex gap-1">
                         <button
                           onClick={() => handleEditProduct(product)}
-                          className="flex-1 flex items-center justify-center gap-1 bg-primary text-white text-xs font-semibold py-2 rounded-xl hover:bg-primary/90 transition-all"
+                          className="flex-1 flex items-center justify-center gap-0.5 bg-primary text-white text-[10px] font-semibold py-1.5 rounded-lg hover:bg-primary/90 transition-all"
                         >
-                          <Edit className="w-3 h-3" /> Editar
+                          <Edit className="w-2.5 h-2.5" /> Editar
                         </button>
                         <button
                           onClick={() => handleToggleFrozen(product.id, product.frozen || false)}
-                          className={`flex items-center justify-center px-2 py-2 rounded-xl transition-all border ${product.frozen ? 'bg-yellow-100 border-yellow-200 text-yellow-700' : 'bg-[#F8F9FC] border-border text-muted-foreground hover:border-yellow-300'}`}
+                          className={`flex items-center justify-center px-1.5 py-1.5 rounded-lg transition-all border ${product.frozen ? 'bg-yellow-100 border-yellow-200 text-yellow-700' : 'bg-[#F8F9FC] border-border text-muted-foreground hover:border-yellow-300'}`}
                         >
-                          {product.frozen ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                          {product.frozen ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
                         </button>
                         <button
                           onClick={() => handleDeleteProduct(product.id)}
-                          className="flex items-center justify-center px-2 py-2 rounded-xl bg-[#F8F9FC] border border-border text-red-400 hover:border-red-300 hover:bg-red-50 transition-all"
+                          className="flex items-center justify-center px-1.5 py-1.5 rounded-lg bg-[#F8F9FC] border border-border text-red-400 hover:border-red-300 hover:bg-red-50 transition-all"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3 h-3" />
                         </button>
                       </div>
                     </div>

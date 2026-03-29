@@ -264,6 +264,18 @@ export async function initDb() {
       -- Purge already-expired revoked tokens on every startup
       DELETE FROM revoked_tokens WHERE expires_at < NOW();
 
+      -- Motoboy completed routes history
+      CREATE TABLE IF NOT EXISTS motoboy_routes (
+        id TEXT PRIMARY KEY,
+        motoboy_user_id TEXT NOT NULL,
+        completed_at TIMESTAMP NOT NULL,
+        value DOUBLE PRECISION NOT NULL DEFAULT 0,
+        from_label TEXT NOT NULL DEFAULT '',
+        to_label TEXT NOT NULL DEFAULT '',
+        store_address TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_motoboy_routes_user ON motoboy_routes(motoboy_user_id);
+
       -- Dispatch queue — persists motoboy rejection state across reloads
       CREATE TABLE IF NOT EXISTS dispatch_queue (
         route_id TEXT PRIMARY KEY,
