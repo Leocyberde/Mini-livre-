@@ -76,9 +76,16 @@ router.get('/stores', async (_req, res) => {
 
 // ─── CLIENT PROFILES ──────────────────────────────────────────────────────────
 
-router.get('/profiles/clients', requireRole('admin'), async (_req, res) => {
+router.get('/profiles/clients', requireAuth, async (req, res) => {
   try {
-    const r = await pool.query('SELECT * FROM client_profiles ORDER BY id');
+    const userId = req.jwtUser!.id;
+    const isAdmin = req.jwtUser!.roles.includes('admin');
+    let r;
+    if (isAdmin) {
+      r = await pool.query('SELECT * FROM client_profiles ORDER BY id');
+    } else {
+      r = await pool.query('SELECT * FROM client_profiles WHERE id = $1', [userId]);
+    }
     res.json(r.rows.map(row => ({
       id: row.id,
       name: row.name,
@@ -93,15 +100,40 @@ router.get('/profiles/clients', requireRole('admin'), async (_req, res) => {
   }
 });
 
-router.put('/profiles/clients', requireRole('admin'), async (req, res) => {
+router.put('/profiles/clients', requireAuth, async (req, res) => {
   try {
+    const userId = req.jwtUser!.id;
+    const isAdmin = req.jwtUser!.roles.includes('admin');
     const clients: Array<{ id: string; name: string; email: string; phone: string; addresses: unknown[]; isActive: boolean }> = req.body;
-    await pool.query('DELETE FROM client_profiles');
-    for (const c of clients) {
+
+    if (isAdmin) {
+      // Admin pode atualizar múltiplos perfis de uma vez (upsert por id, sem apagar outros)
+      for (const c of clients) {
+        await pool.query(`
+          INSERT INTO client_profiles (id, name, email, phone, addresses, is_active)
+          VALUES ($1, $2, $3, $4, $5, $6)
+          ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            email = EXCLUDED.email,
+            phone = EXCLUDED.phone,
+            addresses = EXCLUDED.addresses,
+            is_active = EXCLUDED.is_active
+        `, [c.id, c.name, c.email, c.phone, JSON.stringify(c.addresses), c.isActive ?? false]);
+      }
+    } else {
+      // Usuário comum só pode salvar/atualizar o próprio perfil
+      const own = clients.find(c => c.id === userId) ?? clients[0];
+      if (!own) return res.status(400).json({ error: 'Nenhum perfil fornecido' });
       await pool.query(`
         INSERT INTO client_profiles (id, name, email, phone, addresses, is_active)
         VALUES ($1, $2, $3, $4, $5, $6)
-      `, [c.id, c.name, c.email, c.phone, JSON.stringify(c.addresses), c.isActive ?? false]);
+        ON CONFLICT (id) DO UPDATE SET
+          name = EXCLUDED.name,
+          email = EXCLUDED.email,
+          phone = EXCLUDED.phone,
+          addresses = EXCLUDED.addresses,
+          is_active = EXCLUDED.is_active
+      `, [userId, own.name, own.email, own.phone, JSON.stringify(own.addresses), own.isActive ?? false]);
     }
     res.json({ ok: true });
   } catch (err) {
@@ -143,6 +175,10 @@ router.get('/products', async (req, res) => {
 router.post('/products', requireRole('seller', 'admin'), async (req, res) => {
   try {
     const p = req.body;
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    // Vendedor só pode criar produtos para a própria loja
+    const storeId = isAdmin ? p.storeId : jwtUser.id;
     await pool.query(`
       INSERT INTO products (id, store_id, name, price, original_price, image, image_url, image_urls, category, stock, rating, reviews, description, frozen)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
@@ -151,7 +187,7 @@ router.post('/products', requireRole('seller', 'admin'), async (req, res) => {
         original_price=EXCLUDED.original_price, image=EXCLUDED.image, image_url=EXCLUDED.image_url,
         image_urls=EXCLUDED.image_urls, category=EXCLUDED.category, stock=EXCLUDED.stock, rating=EXCLUDED.rating,
         reviews=EXCLUDED.reviews, description=EXCLUDED.description, frozen=EXCLUDED.frozen
-    `, [p.id, p.storeId, p.name, p.price, p.originalPrice ?? null, p.image, p.imageUrl ?? null,
+    `, [p.id, storeId, p.name, p.price, p.originalPrice ?? null, p.image, p.imageUrl ?? null,
         JSON.stringify(p.imageUrls ?? []),
         p.category, p.stock, p.rating, p.reviews, p.description, p.frozen ?? false]);
     res.json({ ok: true });
@@ -164,12 +200,23 @@ router.post('/products', requireRole('seller', 'admin'), async (req, res) => {
 router.put('/products/:id', requireRole('seller', 'admin'), async (req, res) => {
   try {
     const p = req.body;
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+
+    // Verifica que o produto pertence à loja do vendedor (exceto admin)
+    if (!isAdmin) {
+      const check = await pool.query('SELECT store_id FROM products WHERE id = $1', [req.params.id]);
+      if (check.rows.length > 0 && check.rows[0].store_id !== jwtUser.id) {
+        return res.status(403).json({ error: 'Acesso negado: produto não pertence à sua loja' });
+      }
+    }
+
     await pool.query(`
       UPDATE products SET
         store_id=$1, name=$2, price=$3, original_price=$4, image=$5, image_url=$6,
         image_urls=$7, category=$8, stock=$9, rating=$10, reviews=$11, description=$12, frozen=$13
       WHERE id=$14
-    `, [p.storeId, p.name, p.price, p.originalPrice ?? null, p.image, p.imageUrl ?? null,
+    `, [isAdmin ? p.storeId : jwtUser.id, p.name, p.price, p.originalPrice ?? null, p.image, p.imageUrl ?? null,
         JSON.stringify(p.imageUrls ?? []),
         p.category, p.stock, p.rating, p.reviews, p.description, p.frozen ?? false, req.params.id]);
     res.json({ ok: true });
@@ -181,6 +228,17 @@ router.put('/products/:id', requireRole('seller', 'admin'), async (req, res) => 
 
 router.delete('/products/:id', requireRole('seller', 'admin'), async (req, res) => {
   try {
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+
+    // Verifica que o produto pertence à loja do vendedor (exceto admin)
+    if (!isAdmin) {
+      const check = await pool.query('SELECT store_id FROM products WHERE id = $1', [req.params.id]);
+      if (check.rows.length > 0 && check.rows[0].store_id !== jwtUser.id) {
+        return res.status(403).json({ error: 'Acesso negado: produto não pertence à sua loja' });
+      }
+    }
+
     await pool.query('DELETE FROM products WHERE id=$1', [req.params.id]);
     res.json({ ok: true });
   } catch (err) {
@@ -213,13 +271,23 @@ router.post('/products/bulk', requireRole('seller', 'admin'), async (req, res) =
 router.get('/orders', requireAuth, async (req, res) => {
   try {
     const { clientId } = req.query;
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    const isSeller = jwtUser.roles.includes('seller');
     let r;
-    // Se o clientId for passado e não for "null" ou "undefined", filtra.
-    // Caso contrário, retorna todos os pedidos (visão do lojista/admin).
+
     if (clientId && clientId !== 'undefined' && clientId !== 'null' && clientId !== '') {
+      // Modo cliente: filtra pelos pedidos do próprio cliente
       r = await pool.query('SELECT * FROM orders WHERE client_id = $1 ORDER BY created_at DESC', [clientId]);
-    } else {
+    } else if (isAdmin) {
+      // Admin vê todos os pedidos
       r = await pool.query('SELECT * FROM orders ORDER BY created_at DESC');
+    } else if (isSeller) {
+      // Vendedor vê somente os pedidos da própria loja (store_id = userId)
+      r = await pool.query('SELECT * FROM orders WHERE store_id = $1 ORDER BY created_at DESC', [jwtUser.id]);
+    } else {
+      // Fallback: retorna somente pedidos do próprio usuário como cliente
+      r = await pool.query('SELECT * FROM orders WHERE client_id = $1 ORDER BY created_at DESC', [jwtUser.id]);
     }
     res.json(r.rows.map(mapOrder));
   } catch (err) {

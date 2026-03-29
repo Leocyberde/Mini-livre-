@@ -89,7 +89,11 @@ export default function StoreDetailPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {/* Logo and Name */}
             <div className="md:col-span-1">
-              <div className="text-8xl mb-4">{store.logo}</div>
+              {store.logo && store.logo.startsWith('data:') ? (
+                <img src={store.logo} alt={store.name} className="w-24 h-24 rounded-xl object-cover mb-4" />
+              ) : (
+                <div className="text-8xl mb-4">{store.logo}</div>
+              )}
               <h1 className="text-3xl font-display font-bold text-foreground mb-2">{store.name}</h1>
               <Badge className="bg-primary/10 text-primary mb-4">{store.category}</Badge>
             </div>

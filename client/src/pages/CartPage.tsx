@@ -356,7 +356,11 @@ export default function CartPage() {
           return (
             <div key={storeId} className="bg-white rounded-2xl shadow-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-                <span className="text-lg">{store?.logo}</span>
+                {store?.logo && store.logo.startsWith('data:') ? (
+                  <img src={store.logo} alt={store.name} className="w-6 h-6 rounded object-cover flex-shrink-0" />
+                ) : (
+                  <span className="text-lg">{store?.logo}</span>
+                )}
                 <span className="font-semibold text-sm text-foreground">{store?.name ?? ''}</span>
               </div>
               <div className="divide-y divide-border">

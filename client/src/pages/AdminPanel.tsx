@@ -644,7 +644,11 @@ export default function AdminPanel() {
                     <ArrowLeft className="w-4 h-4" /> Voltar às Lojas
                   </Button>
                   <div className="flex items-center gap-3 flex-1">
-                    <span className="text-3xl">{selectedStore.logo}</span>
+                    {selectedStore.logo && selectedStore.logo.startsWith('data:') ? (
+                      <img src={selectedStore.logo} alt={selectedStore.name} className="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+                    ) : (
+                      <span className="text-3xl">{selectedStore.logo}</span>
+                    )}
                     <div>
                       <h3 className="text-xl font-bold text-foreground">{selectedStore.name}</h3>
                       <p className="text-sm text-muted-foreground">{selectedStore.category} · {selectedStore.location}</p>
@@ -966,7 +970,11 @@ export default function AdminPanel() {
                       <Card key={store.id} className={`p-6 hover:shadow-lg transition-all ${isBlocked ? 'opacity-60 border-red-200' : ''}`}>
                         <div className="flex items-start justify-between mb-4">
                           <div className="flex items-center gap-4">
-                            <div className="text-4xl">{store.logo}</div>
+                            {store.logo && store.logo.startsWith('data:') ? (
+                              <img src={store.logo} alt={store.name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
+                            ) : (
+                              <div className="text-4xl">{store.logo}</div>
+                            )}
                             <div>
                               <h4 className="text-lg font-semibold text-foreground">{store.name}</h4>
                               <p className="text-sm text-muted-foreground">{store.category}</p>

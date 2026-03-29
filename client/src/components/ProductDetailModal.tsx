@@ -125,8 +125,8 @@ export default function ProductDetailModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-2xl w-full p-0 overflow-hidden max-h-[90vh] overflow-y-auto">
-        <div className="p-6 space-y-6">
+      <DialogContent className="max-w-2xl w-full p-0 overflow-hidden flex flex-col" style={{ maxHeight: '90dvh' }}>
+        <div className="p-6 space-y-6 overflow-y-auto flex-1">
           {/* Header com foto pequena e informações da loja */}
           <div className="flex gap-4">
             <div className="bg-gradient-to-br from-primary/10 to-accent/20 rounded-lg w-24 h-24 flex items-center justify-center text-4xl flex-shrink-0 relative overflow-hidden">
@@ -149,7 +149,11 @@ export default function ProductDetailModal({
             {store && (
               <div className="flex-1 space-y-2">
                 <div className="flex items-start gap-2">
-                  <span className="text-2xl">{store.logo}</span>
+                  {store.logo && store.logo.startsWith('data:') ? (
+                    <img src={store.logo} alt={store.name} className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                  ) : (
+                    <span className="text-2xl">{store.logo}</span>
+                  )}
                   <div className="flex-1">
                     <p className="font-semibold text-foreground text-sm">{store.name}</p>
                     <p className="text-xs text-muted-foreground">{store.category}</p>
@@ -271,7 +275,7 @@ export default function ProductDetailModal({
                 handleClose();
               }}
               disabled={product.stock === 0 || product.frozen}
-              className="flex-1 gap-2 bg-accent hover:bg-accent/90 text-accent-foreground font-semibold"
+              className="flex-1 gap-2 bg-accent hover:bg-accent/90 text-black font-semibold"
               data-testid="btn-buy-now"
             >
               <Zap className="w-4 h-4" />
