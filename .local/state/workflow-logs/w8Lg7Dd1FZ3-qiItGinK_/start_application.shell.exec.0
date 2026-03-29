@@ -1,0 +1,37 @@
+
+> marketplace-regional@1.0.0 dev /home/runner/workspace
+> npx tsx server/index.ts & npx vite --host 0.0.0.0 --port 5000
+
+[1G[0K⠙[1G[0K[1G[0K⠙[1G[0KPort 5000 is in use, trying another one...
+
+  [32m[1mVITE[22m v7.1.9[39m  [2mready in [0m[1m327[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m5001[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://172.31.72.162:[1m5001[22m/[39m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[dotenv@17.3.1] injecting env (0) from .env [2m-- tip: ⚡️ secrets for agents: https://dotenvx.com/as2[0m
+[dotenv@17.3.1] injecting env (0) from .env [2m-- tip: ⚙️  write to custom object with { processEnv: myObject }[0m
+Database tables initialized
+node:events:502
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::3001
+[90m    at Server.setupListenHandle [as _listen2] (node:net:1908:16)[39m
+[90m    at listenInCluster (node:net:1965:12)[39m
+[90m    at Server.listen (node:net:2067:7)[39m
+    at startServer [90m(/home/runner/workspace/[39mserver/index.ts:149:10[90m)[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+Emitted 'error' event on WebSocketServer instance at:
+[90m    at Server.emit (node:events:524:28)[39m
+[90m    at emitErrorNT (node:net:1944:8)[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:82:21)[39m {
+  code: [32m'EADDRINUSE'[39m,
+  errno: [33m-98[39m,
+  syscall: [32m'listen'[39m,
+  address: [32m'::'[39m,
+  port: [33m3001[39m
+}
+
+Node.js v20.20.0
+[1G[0K⠙[1G[0K
