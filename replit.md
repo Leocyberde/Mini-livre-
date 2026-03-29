@@ -17,6 +17,21 @@ A regional marketplace platform that connects clients, sellers, and delivery dri
 - `shared/` — Constants shared between client and server
 - `dist/` — Build output (server: `dist/index.js`, client: `dist/public/`)
 
+### AdminPanel Architecture (modular)
+
+`client/src/pages/AdminPanel.tsx` — Orchestrator (all state/hooks/handlers here, no JSX tabs)
+`client/src/pages/AdminPanel/` — Tab components (no state, only props):
+  - `types.ts` — `AdminMotoboy` interface
+  - `helpers.tsx` — `statusLabel`, `statusIcon`, `fmtDateTime`, `formatDate`, `getTimestampForStatus`, `getDoubleRouteLabel`, `isDoubleRoute`
+  - `OverviewTab.tsx` — KPIs, dispatch queue, sales/performance charts
+  - `StoresTab.tsx` — Store grid, store detail, order management, block/delete/notify dialogs
+  - `ClientsTab.tsx` — Unique client list derived from orders
+  - `MotoboyTab.tsx` — Motoboy list, detail view (profile/orders sub-tabs), all motoboy dialogs
+  - `CategoriesTab.tsx` — Categories derived from real products
+  - `ReportsTab.tsx` — Sales report table + all orders detail list
+  - `SupportTab.tsx` — Active support tickets with live chat
+  - `SupportHistoryTab.tsx` — Resolved tickets history
+
 ## Key Configuration
 
 - Vite runs on port 5000 (webview); proxies `/api` and `/ws` to backend on port 3001
