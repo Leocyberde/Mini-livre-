@@ -16,6 +16,7 @@ import { ProductQAProvider } from "./contexts/ProductQAContext";
 import { ReviewProvider } from "./contexts/ReviewContext";
 import { PromotionsProvider } from "./contexts/PromotionsContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { StoresProvider } from "./contexts/StoresContext";
 import Header from "./components/Header";
 import ClientPanel from "./pages/ClientPanel";
 import CartPage from "./pages/CartPage";
@@ -187,6 +188,7 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="light">
         <AuthProvider>
+          <StoresProvider>
           <ProductProvider>
             <NotificationProvider>
               <MarketplaceProvider>
@@ -213,6 +215,7 @@ function App() {
               </MarketplaceProvider>
             </NotificationProvider>
           </ProductProvider>
+          </StoresProvider>
         </AuthProvider>
       </ThemeProvider>
     </ErrorBoundary>

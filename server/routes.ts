@@ -6,9 +6,11 @@ const router = Router();
 
 // ─── SELLER PROFILE ───────────────────────────────────────────────────────────
 
-router.get('/profiles/seller', async (_req, res) => {
+router.get('/profiles/seller', async (req, res) => {
   try {
-    const r = await pool.query("SELECT * FROM seller_profile WHERE id = 'default'");
+    const { userId } = req.query;
+    if (!userId || typeof userId !== 'string') return res.json(null);
+    const r = await pool.query('SELECT * FROM seller_profile WHERE id = $1', [userId]);
     if (r.rows.length === 0) return res.json(null);
     const row = r.rows[0];
     res.json({
@@ -29,10 +31,11 @@ router.get('/profiles/seller', async (_req, res) => {
 
 router.put('/profiles/seller', requireRole('seller', 'admin'), async (req, res) => {
   try {
+    const userId = req.jwtUser!.id;
     const { storeId, storeName, storeDescription, storeCategory, storeLogo, storePhone, storeEmail, address } = req.body;
     await pool.query(`
       INSERT INTO seller_profile (id, store_id, store_name, store_description, store_category, store_logo, store_phone, store_email, address)
-      VALUES ('default', $1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       ON CONFLICT (id) DO UPDATE SET
         store_id = EXCLUDED.store_id,
         store_name = EXCLUDED.store_name,
@@ -42,8 +45,29 @@ router.put('/profiles/seller', requireRole('seller', 'admin'), async (req, res) 
         store_phone = EXCLUDED.store_phone,
         store_email = EXCLUDED.store_email,
         address = EXCLUDED.address
-    `, [storeId, storeName, storeDescription, storeCategory, storeLogo, storePhone, storeEmail, JSON.stringify(address)]);
+    `, [userId, storeId, storeName, storeDescription, storeCategory, storeLogo, storePhone, storeEmail, JSON.stringify(address)]);
     res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── PUBLIC STORES CATALOG ────────────────────────────────────────────────────
+
+router.get('/stores', async (_req, res) => {
+  try {
+    const r = await pool.query('SELECT * FROM seller_profile WHERE store_name IS NOT NULL AND store_name != \'\'');
+    res.json(r.rows.map(row => ({
+      id: row.id,
+      name: row.store_name,
+      category: row.store_category,
+      description: row.store_description,
+      logo: row.store_logo,
+      phone: row.store_phone,
+      email: row.store_email,
+      address: row.address,
+    })));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
@@ -88,9 +112,12 @@ router.put('/profiles/clients', requireRole('admin'), async (req, res) => {
 
 // ─── PRODUCTS ─────────────────────────────────────────────────────────────────
 
-router.get('/products', async (_req, res) => {
+router.get('/products', async (req, res) => {
   try {
-    const r = await pool.query('SELECT * FROM products ORDER BY name');
+    const { storeId } = req.query;
+    const r = storeId && typeof storeId === 'string'
+      ? await pool.query('SELECT * FROM products WHERE store_id = $1 ORDER BY name', [storeId])
+      : await pool.query('SELECT * FROM products ORDER BY name');
     res.json(r.rows.map(row => ({
       id: row.id,
       storeId: row.store_id,
@@ -810,15 +837,15 @@ router.post('/auth/add-role', requireAuth, async (req, res) => {
       await pool.query('UPDATE users SET roles = $1 WHERE id = $2', [roles, userId]);
     }
     if (role === 'seller' && storeData) {
-      const { storeName, storeDescription, storeCategory, cnpj, address } = storeData;
+      const { storeName, storeDescription, storeCategory, address } = storeData;
       await pool.query(`
         INSERT INTO seller_profile (id, store_id, store_name, store_description, store_category, store_logo, store_phone, store_email, address)
-        VALUES ('default', $1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT (id) DO UPDATE SET
           store_id = EXCLUDED.store_id, store_name = EXCLUDED.store_name,
           store_description = EXCLUDED.store_description, store_category = EXCLUDED.store_category,
           address = EXCLUDED.address
-      `, [cnpj || 'store-1', storeName, storeDescription || '', storeCategory || '', '🏪', '', user.email, JSON.stringify(address)]);
+      `, [userId, storeName, storeDescription || '', storeCategory || '', '🏪', '', user.email, JSON.stringify(address)]);
     }
     if (role === 'motoboy' && motoboyData) {
       await pool.query(`

@@ -5,7 +5,7 @@
 import 'leaflet/dist/leaflet.css';
 import { useMarketplace } from '@/contexts/MarketplaceContext';
 import { useProfile } from '@/contexts/ProfileContext';
-import { getStoreById } from '@/lib/mockData';
+import { useStores } from '@/contexts/StoresContext';
 import { useProducts } from '@/contexts/ProductContext';
 import { useMotoboyClientChat } from '@/contexts/MotoboyClientChatContext';
 import { calcMotoRideValue as calcDeliveryFee } from '@/lib/deliveryCalc';
@@ -225,13 +225,13 @@ function ClientMotoboyChat({ orderId, onClose }: { orderId: string; onClose: () 
 export default function ClientOrdersPage() {
   const { clientOrders } = useMarketplace();
   const { sellerProfile } = useProfile();
+  const { getStoreById } = useStores();
   const { products } = useProducts();
   const { getUnreadCount } = useMotoboyClientChat();
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
   const [chatOrderId, setChatOrderId] = useState<string | null>(null);
 
   const getStoreLogo = (storeId: string) => {
-    if (storeId === sellerProfile.storeId) return sellerProfile.storeLogo;
     return getStoreById(storeId)?.logo || '';
   };
 

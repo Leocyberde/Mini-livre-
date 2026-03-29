@@ -2,6 +2,16 @@
  * Data types and utility functions for Marketplace Regional
  */
 
+export interface StoreAddress {
+  cep?: string;
+  logradouro?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  cidade?: string;
+  uf?: string;
+}
+
 export interface Store {
   id: string;
   name: string;
@@ -10,6 +20,9 @@ export interface Store {
   reviews: number;
   location: string;
   address?: string;
+  addressData?: StoreAddress;
+  phone?: string;
+  email?: string;
   description: string;
   logo?: string;
 }

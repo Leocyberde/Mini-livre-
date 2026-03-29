@@ -49,8 +49,8 @@ interface ProfileContextType {
   switchClient: (index: number) => void;
 }
 
-const emptySellerProfile: SellerProfile = {
-  storeId: 'store-1',
+const makeEmptySellerProfile = (userId: string): SellerProfile => ({
+  storeId: userId,
   storeName: '',
   storeDescription: '',
   storeCategory: '',
@@ -58,7 +58,7 @@ const emptySellerProfile: SellerProfile = {
   storePhone: '',
   storeEmail: '',
   address: null,
-};
+});
 
 const emptyClientProfile = (id: string, name: string, email: string, phone: string): ClientProfile => ({
   id,
@@ -76,16 +76,18 @@ async function api(method: string, path: string, body?: unknown) {
 
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-  const [sellerProfile, setSellerProfile] = useState<SellerProfile>(emptySellerProfile);
+  const [sellerProfile, setSellerProfile] = useState<SellerProfile>(() => makeEmptySellerProfile(user?.id ?? ''));
   const [allClients, setAllClients] = useState<ClientProfile[]>([]);
   const [activeClientIndex, setActiveClientIndex] = useState(0);
 
   useEffect(() => {
-    // Load seller profile
-    fetch('/api/profiles/seller').then(r => r.ok ? r.json() : null).then((data: SellerProfile | null) => {
+    if (!user) return;
+    // Load seller profile scoped to this user
+    fetch(`/api/profiles/seller?userId=${user.id}`).then(r => r.ok ? r.json() : null).then((data: SellerProfile | null) => {
       if (data && data.storeName) {
-        setSellerProfile(data);
-      } else if (user && user.roles.includes('seller')) {
+        // Always ensure storeId is user.id for consistency
+        setSellerProfile({ ...data, storeId: user.id });
+      } else if (user.roles.includes('seller')) {
         // Seed seller profile from authenticated user's registration data
         const userAddress: SavedAddress | null = user.address?.cep && user.address?.numero
           ? {
@@ -102,7 +104,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
             }
           : null;
         const seededProfile: SellerProfile = {
-          storeId: 'store-1',
+          storeId: user.id,
           storeName: '',
           storeDescription: '',
           storeCategory: '',

@@ -4,7 +4,8 @@
  * seção de perguntas ao lojista, e botão para ver avaliações.
  */
 import { useState } from 'react';
-import { Product, getStoreById } from '@/lib/mockData';
+import { Product } from '@/lib/mockData';
+import { useStores } from '@/contexts/StoresContext';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -68,6 +69,7 @@ export default function ProductDetailModal({
   const { sendQuestion, getQuestionsForProduct } = useProductQA();
   const { addNotification } = useNotification();
   const { getProductReviews, getStoreReviews } = useReview();
+  const { getStoreById } = useStores();
 
   if (!product) return null;
 

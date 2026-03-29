@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLocation, useSearch } from 'wouter';
-import { mockStores } from '@/lib/mockData';
+import { useStores } from '@/contexts/StoresContext';
 import { useProducts } from '@/contexts/ProductContext';
 import { useMarketplace } from '@/contexts/MarketplaceContext';
 import { useProfile } from '@/contexts/ProfileContext';
@@ -163,6 +163,7 @@ export default function ClientPanel() {
   const { addToCart } = useMarketplace();
   const { products } = useProducts();
   const { sellerProfile } = useProfile();
+  const { getStoreById } = useStores();
   const { notifications, markAllRead, markRead, clientUnread } = useNotification();
   const [galleryProduct, setGalleryProduct] = useState<Product | null>(null);
   const [, navigate] = useLocation();
@@ -352,7 +353,7 @@ export default function ClientPanel() {
                 </h3>
                 <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
                   {displayProducts.map(product => {
-                    const store = mockStores.find(s => s.id === product.storeId);
+                    const store = getStoreById(product.storeId);
                     const price = Number(product.price) || 0;
                     const origPrice = product.originalPrice ? Number(product.originalPrice) : 0;
                     const discount = origPrice > price ? Math.round(((origPrice - price) / origPrice) * 100) : 0;
@@ -391,7 +392,7 @@ export default function ClientPanel() {
 
                         {/* Info */}
                         <div className="p-2 flex flex-col flex-1">
-                          <p className="text-[10px] text-muted-foreground mb-0.5 truncate">{store?.name ?? sellerProfile.storeName}</p>
+                          <p className="text-[10px] text-muted-foreground mb-0.5 truncate">{store?.name ?? ''}</p>
                           <p className="text-xs font-semibold text-foreground line-clamp-2 leading-tight mb-1 flex-1">{product.name}</p>
 
                           {product.description && (
@@ -845,11 +846,7 @@ export default function ClientPanel() {
           onClose={() => { setIsModalOpen(false); setSelectedProduct(null); }}
           onAddToCart={handleAddToCartModal}
           onBuyNow={handleBuyNow}
-          storeAddress={
-            selectedProduct.storeId === sellerProfile.storeId && sellerProfile.address
-              ? [sellerProfile.address.logradouro, sellerProfile.address.numero, sellerProfile.address.bairro, sellerProfile.address.cidade, sellerProfile.address.uf].filter(Boolean).join(', ')
-              : undefined
-          }
+          storeAddress={getStoreById(selectedProduct.storeId)?.address}
         />
       )}
     </div>

@@ -3,7 +3,7 @@
  * Features: Informações da loja, produtos, avaliações
  */
 import { useLocation, useSearch } from 'wouter';
-import { getStoreById } from '@/lib/mockData';
+import { useStores } from '@/contexts/StoresContext';
 import { useProducts } from '@/contexts/ProductContext';
 import { useMarketplace } from '@/contexts/MarketplaceContext';
 import { Card } from '@/components/ui/card';
@@ -19,6 +19,7 @@ import { Product } from '@/lib/mockData';
 export default function StoreDetailPage() {
   const search = useSearch();
   const storeId = new URLSearchParams(search).get('id') || '';
+  const { getStoreById, isLoading: storesLoading } = useStores();
   const store = getStoreById(storeId);
   const { products } = useProducts();
   const { addToCart } = useMarketplace();
@@ -26,6 +27,14 @@ export default function StoreDetailPage() {
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  if (storesLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    );
+  }
 
   if (!store) {
     return (

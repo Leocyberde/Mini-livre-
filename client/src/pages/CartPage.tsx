@@ -5,7 +5,8 @@
 import { useMarketplace } from '@/contexts/MarketplaceContext';
 import { useProfile, SavedAddress } from '@/contexts/ProfileContext';
 import { useProducts } from '@/contexts/ProductContext';
-import { getStoreById, getBairroCoords, mockStoreCoords, Order } from '@/lib/mockData';
+import { getBairroCoords, mockStoreCoords, Order } from '@/lib/mockData';
+import { useStores } from '@/contexts/StoresContext';
 import { Input } from '@/components/ui/input';
 import {
   ArrowLeft, Trash2, Plus, Minus, MapPin, Loader2, Package,
@@ -25,7 +26,8 @@ const emptyAddress: AddressFormType = {
 
 export default function CartPage() {
   const { cart, removeFromCart, updateCartQuantity, clearCart, addClientOrder } = useMarketplace();
-  const { clientProfile, sellerProfile, addClientAddress, getPrimaryAddress } = useProfile();
+  const { clientProfile, addClientAddress, getPrimaryAddress } = useProfile();
+  const { getStoreById } = useStores();
   const { products } = useProducts();
   const [, navigate] = useLocation();
 
@@ -47,23 +49,27 @@ export default function CartPage() {
   const [calcLoading, setCalcLoading] = useState(false);
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
+  const cartByStore = cart.reduce((acc, item) => {
+    if (!acc[item.storeId]) acc[item.storeId] = [];
+    acc[item.storeId].push(item);
+    return acc;
+  }, {} as Record<string, typeof cart>);
+
+  const primaryStoreId = Object.keys(cartByStore)[0] || '';
+  const primaryStore = primaryStoreId ? getStoreById(primaryStoreId) : undefined;
+  const primaryStoreAddress = primaryStore?.addressData;
+
   useEffect(() => {
     const primary = getPrimaryAddress();
     if (primary) setSelectedAddressId(primary.id);
   }, [clientProfile.addresses]);
 
   useEffect(() => {
-    if (deliveryType === 'delivery' && selectedAddressId && sellerProfile.address) {
+    if (deliveryType === 'delivery' && selectedAddressId && primaryStoreAddress) {
       const addr = clientProfile.addresses.find(a => a.id === selectedAddressId);
       if (addr) handleCalcDelivery(addr);
     }
   }, [selectedAddressId, deliveryType]);
-
-  const cartByStore = cart.reduce((acc, item) => {
-    if (!acc[item.storeId]) acc[item.storeId] = [];
-    acc[item.storeId].push(item);
-    return acc;
-  }, {} as Record<string, typeof cart>);
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const shipping = deliveryType === 'delivery' && deliveryFee !== null ? deliveryFee : 0;
@@ -74,16 +80,16 @@ export default function CartPage() {
 
   const handleCalcDelivery = async (addr?: SavedAddress) => {
     const address = addr || selectedAddress;
-    if (!address || !sellerProfile.address) {
+    if (!address || !primaryStoreAddress) {
       setDeliveryFee(null);
       setDeliveryDistance(null);
-      setDeliveryError(!sellerProfile.address ? 'A loja ainda não cadastrou seu endereço.' : null);
+      setDeliveryError(!primaryStoreAddress ? 'A loja ainda não cadastrou seu endereço.' : null);
       return;
     }
     setCalcLoading(true);
     setDeliveryError(null);
     try {
-      const storeAddr = [sellerProfile.address.logradouro, sellerProfile.address.numero, sellerProfile.address.bairro, sellerProfile.address.cidade, sellerProfile.address.uf, sellerProfile.address.cep].filter(Boolean).join(', ');
+      const storeAddr = [primaryStoreAddress.logradouro, primaryStoreAddress.numero, primaryStoreAddress.bairro, primaryStoreAddress.cidade, primaryStoreAddress.uf, primaryStoreAddress.cep].filter(Boolean).join(', ');
       const customerAddr = [address.logradouro, address.numero, address.bairro, address.cidade, address.uf, address.cep].filter(Boolean).join(', ');
       const result = await calcDeliveryFromAddresses(storeAddr, customerAddr);
       if (result) { setDeliveryFee(result.deliveryFee); setDeliveryDistance(result.distance); }
@@ -131,8 +137,8 @@ export default function CartPage() {
     const storeCount = Object.keys(cartByStore).length;
     const newOrders: Order[] = [];
 
-    const storeAddrFull = sellerProfile.address
-      ? [sellerProfile.address.logradouro, sellerProfile.address.numero, sellerProfile.address.bairro, sellerProfile.address.cidade, sellerProfile.address.uf, sellerProfile.address.cep].filter(Boolean).join(', ')
+    const storeAddrFull = primaryStoreAddress
+      ? [primaryStoreAddress.logradouro, primaryStoreAddress.numero, primaryStoreAddress.bairro, primaryStoreAddress.cidade, primaryStoreAddress.uf, primaryStoreAddress.cep].filter(Boolean).join(', ')
       : undefined;
 
     const deliveryAddrFull = selectedAddress
@@ -147,13 +153,11 @@ export default function CartPage() {
     for (const [storeId, items] of Object.entries(cartByStore)) {
       const storeSubtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
       const store = getStoreById(storeId);
-      const resolvedStoreName = storeId === sellerProfile.storeId ? sellerProfile.storeName : store?.name;
-      const resolvedStoreAddress = storeId === sellerProfile.storeId && sellerProfile.address
-        ? [sellerProfile.address.logradouro, sellerProfile.address.numero, sellerProfile.address.bairro, sellerProfile.address.cidade, sellerProfile.address.uf].filter(Boolean).join(', ')
-        : store?.address;
+      const resolvedStoreName = store?.name;
+      const resolvedStoreAddress = store?.address;
       const resolvedStoreCoords: [number, number] | undefined =
         geocodedStoreCoords ??
-        (storeId === sellerProfile.storeId && sellerProfile.address ? getBairroCoords(sellerProfile.address.bairro) ?? undefined : undefined);
+        (store?.addressData?.bairro ? getBairroCoords(store.addressData.bairro) ?? undefined : undefined);
       const orderCreatedAt = new Date().toISOString();
 
       let order: Order;
@@ -217,7 +221,7 @@ export default function CartPage() {
   /* ── ORDER CONFIRMATION SCREEN ── */
   if (showOrderConfirm) {
     const msg = buildWhatsappMessage(placedOrders);
-    const rawPhone = sellerProfile.storePhone.replace(/\D/g, '');
+    const rawPhone = (primaryStore?.phone || '').replace(/\D/g, '');
     const waUrl = rawPhone ? `https://wa.me/55${rawPhone}?text=${encodeURIComponent(msg)}` : `https://wa.me/?text=${encodeURIComponent(msg)}`;
 
     return (
@@ -353,7 +357,7 @@ export default function CartPage() {
             <div key={storeId} className="bg-white rounded-2xl shadow-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center gap-2">
                 <span className="text-lg">{store?.logo}</span>
-                <span className="font-semibold text-sm text-foreground">{store?.name ?? sellerProfile.storeName}</span>
+                <span className="font-semibold text-sm text-foreground">{store?.name ?? ''}</span>
               </div>
               <div className="divide-y divide-border">
                 {items.map(item => {
@@ -496,7 +500,7 @@ export default function CartPage() {
             )}
 
             {/* Delivery fee display */}
-            {!showNewAddressForm && selectedAddress && sellerProfile.address && (
+            {!showNewAddressForm && selectedAddress && primaryStoreAddress && (
               <div className="mt-3 pt-3 border-t border-border">
                 {calcLoading ? (
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
