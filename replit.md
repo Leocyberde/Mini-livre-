@@ -22,6 +22,7 @@ A regional marketplace platform that connects clients, sellers, and delivery dri
 - Vite runs on port 5000 (webview); proxies `/api` and `/ws` to backend on port 3001
 - Database URL comes from `DATABASE_URL` environment variable (auto-set by Replit)
 - Admin user seeded automatically on first start: `leolulu842@gmail.com`
+- `allowedHosts: true` in vite.config.ts to allow Replit proxy
 
 ## Scripts
 
@@ -31,4 +32,13 @@ A regional marketplace platform that connects clients, sellers, and delivery dri
 
 ## Deployment
 
-Production build runs `node dist/index.js` which serves both the API and the static frontend.
+- Target: VM (required for WebSocket support)
+- Build: `npm run build`
+- Run: `node dist/index.js`
+- Production build runs `node dist/index.js` which serves both the API and the static frontend on port 3000
+
+## Workflow
+
+- Name: "Start application"
+- Command: `npm run dev`
+- Port: 5000 (webview)
