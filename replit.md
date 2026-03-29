@@ -1,53 +1,34 @@
 # Marketplace Regional
 
-A full-stack regional marketplace web application with integrated delivery tracking.
+A regional marketplace platform that connects clients, sellers, and delivery drivers (motoboys) in a local area.
 
 ## Architecture
 
-- **Frontend**: React 19 + Vite on port 5000, using Tailwind CSS 4, Wouter (routing), Radix UI, Lucide React
-- **Backend**: Express.js (Node.js) on port 3001 using `tsx` (TypeScript execution)
-- **Database**: PostgreSQL via Replit's built-in database (`pg` driver, `DATABASE_URL` env var)
-- **Real-time**: WebSocket server (`ws`) at `/ws/tracking` for live delivery location tracking
-- **Auth**: JWT + bcryptjs for authentication
-- **Maps**: Google Maps Services JS for geocoding and distance matrix
+- **Frontend**: React 19 + Vite + Tailwind CSS v4 + Radix UI components
+- **Backend**: Express (Node.js) + TypeScript, served on port 3001 in dev
+- **Database**: PostgreSQL (Replit built-in), accessed via `pg` pool
+- **WebSockets**: Real-time GPS tracking for deliveries via `/ws/tracking`
+- **Auth**: JWT + bcrypt
 
 ## Project Structure
 
-```
-client/          React frontend
-  src/
-    components/  UI components (Radix UI primitives in ui/)
-    contexts/    Global state (Auth, Marketplace, Notifications, etc.)
-    pages/       Route views (Admin, Seller, Client, Motoboy panels)
-    hooks/       Custom React hooks
-    lib/         Utilities
-server/          Express backend
-  index.ts       Entry point (Express + WebSocket server)
-  routes.ts      API endpoints
-  db.ts          Database schema init + PostgreSQL connection pool
-  auth.ts        JWT authentication logic
-shared/          Code shared between client and server
-```
+- `client/` — React frontend (Vite root)
+- `server/` — Express API server + WebSocket server
+- `shared/` — Constants shared between client and server
+- `dist/` — Build output (server: `dist/index.js`, client: `dist/public/`)
 
-## Running the App
+## Key Configuration
 
-```bash
-npm run dev       # Starts backend (port 3001) + Vite frontend (port 5000)
-npm run build     # Builds frontend to dist/public, bundles backend to dist/
-npm run start     # Runs the production build
-```
+- Vite runs on port 5000 (webview); proxies `/api` and `/ws` to backend on port 3001
+- Database URL comes from `DATABASE_URL` environment variable (auto-set by Replit)
+- Admin user seeded automatically on first start: `leolulu842@gmail.com`
 
-## Environment Variables
+## Scripts
 
-- `DATABASE_URL` — PostgreSQL connection string (set by Replit automatically)
-- `JWT_SECRET` — Secret for signing JWT tokens
-- `GOOGLE_MAPS_API_KEY` — For geocoding and distance matrix API calls
-- `PORT` — Server port (defaults to 3001 in dev, 3000 in production)
+- `npm run dev` — Start both backend (tsx) and frontend (vite) concurrently
+- `npm run build` — Build client to `dist/public` and bundle server to `dist/index.js`
+- `npm run start` — Run production build
 
-## Key Notes
+## Deployment
 
-- The Vite dev server (port 5000) proxies `/api` and `/ws` requests to the backend (port 3001)
-- In production, the Express server serves the built frontend static files from `dist/public`
-- The database schema is automatically initialized on startup via `initDb()` in `server/db.ts`
-- An admin user (`leolulu842@gmail.com`) is seeded on first startup if it doesn't exist
-- Scripts use `node_modules/.bin/` directly to work correctly in the Replit environment
+Production build runs `node dist/index.js` which serves both the API and the static frontend.

@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AddressForm } from '@/hooks/useCep';
 import { nanoid } from 'nanoid';
 import { useAuth } from '@/contexts/AuthContext';
-import { authApi } from '@/lib/authFetch';
+import { authApi, authFetch } from '@/lib/authFetch';
 
 export interface SavedAddress extends AddressForm {
   id: string;
@@ -83,7 +83,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) return;
     // Load seller profile scoped to this user
-    fetch(`/api/profiles/seller?userId=${user.id}`).then(r => r.ok ? r.json() : null).then((data: SellerProfile | null) => {
+    authFetch(`/api/profiles/seller?userId=${user.id}`).then(r => r.ok ? r.json() : null).then((data: SellerProfile | null) => {
       if (data && data.storeName) {
         // Always ensure storeId is user.id for consistency
         setSellerProfile({ ...data, storeId: user.id });

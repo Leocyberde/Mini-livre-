@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { pool } from './db.js';
-import { requireAuth, requireRole, signToken } from './auth.js';
+import { requireAuth, requireRole, signToken, verifyToken, revokeToken } from './auth.js';
 
 const router = Router();
 
@@ -13,14 +13,25 @@ router.get('/profiles/seller', async (req, res) => {
     const r = await pool.query('SELECT * FROM seller_profile WHERE id = $1', [userId]);
     if (r.rows.length === 0) return res.json(null);
     const row = r.rows[0];
+
+    // Determine whether the requester is authenticated (optional auth)
+    const authHeader = req.headers.authorization;
+    const payload = authHeader?.startsWith('Bearer ')
+      ? verifyToken(authHeader.slice(7))
+      : null;
+    const isAuthenticated = payload !== null;
+
     res.json({
       storeId: row.store_id,
       storeName: row.store_name,
       storeDescription: row.store_description,
       storeCategory: row.store_category,
       storeLogo: row.store_logo,
-      storePhone: row.store_phone,
-      storeEmail: row.store_email,
+      // Contact details only returned for authenticated users
+      ...(isAuthenticated && {
+        storePhone: row.store_phone,
+        storeEmail: row.store_email,
+      }),
       address: row.address,
     });
   } catch (err) {
@@ -317,6 +328,10 @@ router.get('/orders', requireAuth, async (req, res) => {
 router.post('/orders', requireAuth, async (req, res) => {
   try {
     const o = req.body;
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    // Non-admins must always use their own id as clientId
+    const clientId = isAdmin ? (o.clientId ?? jwtUser.id) : jwtUser.id;
     await pool.query(`
       INSERT INTO orders (id, store_id, items, total, status, created_at, updated_at,
         customer_name, customer_email, customer_phone, delivery_code, is_pickup, payment_status,
@@ -334,7 +349,7 @@ router.post('/orders', requireAuth, async (req, res) => {
         o.storeName ?? null, o.storeAddress ?? null,
         o.storeCoords ? JSON.stringify(o.storeCoords) : null,
         JSON.stringify(o.statusHistory ?? []),
-        o.deliveredAt ?? null, false, o.clientId ?? null]);
+        o.deliveredAt ?? null, false, clientId]);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -362,6 +377,27 @@ router.put('/orders/:id/status', requireRole('seller', 'admin', 'motoboy'), asyn
     const motoboyStatuses = ['motoboy_accepted', 'picked_up', 'motoboy_at_store', 'on_the_way', 'motoboy_arrived', 'delivered'];
 
     if (isMotoboy && motoboyStatuses.includes(status)) {
+      // Fetch the current order state before allowing any motoboy status update
+      const orderRow = await pool.query('SELECT status, motoboy_id FROM orders WHERE id = $1', [req.params.id]);
+      if (orderRow.rows.length === 0) return res.status(404).json({ error: 'Pedido não encontrado' });
+
+      const order = orderRow.rows[0];
+
+      if (status === 'motoboy_accepted') {
+        // Guard: only allow claiming if the order is waiting and not yet assigned
+        if (order.status !== 'waiting_motoboy') {
+          return res.status(409).json({ error: 'Pedido não está aguardando motoboy' });
+        }
+        if (order.motoboy_id !== null && order.motoboy_id !== jwtUser.id) {
+          return res.status(409).json({ error: 'Pedido já foi atribuído a outro motoboy' });
+        }
+      } else {
+        // For subsequent statuses, the motoboy must be the one already assigned
+        if (order.motoboy_id !== jwtUser.id) {
+          return res.status(403).json({ error: 'Acesso não autorizado: pedido não é seu' });
+        }
+      }
+
       await pool.query(
         `UPDATE orders SET status=$1, updated_at=$2, status_history=$3, delivered_at=$4, motoboy_id=$5 WHERE id=$6`,
         [status, new Date().toISOString(), JSON.stringify(statusHistory ?? []), deliveredAt ?? null, jwtUser.id, req.params.id]
@@ -531,7 +567,10 @@ router.get('/motoboys', requireRole('seller', 'admin', 'motoboy'), async (_req, 
 // Ensure a motoboy profile exists for the given userId (creates one if missing)
 router.post('/motoboys/ensure', requireRole('motoboy', 'admin'), async (req, res) => {
   try {
-    const { userId } = req.body;
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    // Non-admins can only create/fetch their own motoboy profile
+    const userId = isAdmin ? (req.body.userId ?? jwtUser.id) : jwtUser.id;
     if (!userId) return res.status(400).json({ error: 'userId é obrigatório' });
 
     // Check if motoboy already exists by id or user_id
@@ -655,9 +694,24 @@ function mapMotoboy(row: Record<string, unknown>) {
 
 // ─── DISPATCH QUEUE ───────────────────────────────────────────────────────────
 
-router.get('/dispatch-queue', requireRole('seller', 'admin', 'motoboy'), async (_req, res) => {
+router.get('/dispatch-queue', requireRole('seller', 'admin', 'motoboy'), async (req, res) => {
   try {
-    const r = await pool.query('SELECT * FROM dispatch_queue ORDER BY created_at ASC');
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    const isSeller = jwtUser.roles.includes('seller') && !isAdmin;
+
+    let r;
+    if (isSeller) {
+      // Sellers only see their own store's queue
+      const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+      if (profileRow.rows.length === 0) return res.json([]);
+      const sellerStoreId = profileRow.rows[0].store_id;
+      r = await pool.query('SELECT * FROM dispatch_queue WHERE store_id = $1 ORDER BY created_at ASC', [sellerStoreId]);
+    } else {
+      // Admin and motoboy see the full queue
+      r = await pool.query('SELECT * FROM dispatch_queue ORDER BY created_at ASC');
+    }
+
     res.json(r.rows.map(row => ({
       routeId: row.route_id,
       storeId: row.store_id,
@@ -677,22 +731,77 @@ router.get('/dispatch-queue', requireRole('seller', 'admin', 'motoboy'), async (
 router.put('/dispatch-queue/:routeId', requireRole('seller', 'admin', 'motoboy'), async (req, res) => {
   try {
     const e = req.body;
-    await pool.query(`
-      INSERT INTO dispatch_queue (route_id, store_id, order_ids, route_type, rejection_count, last_rejected_at, rejected_by_motoboy_ids, cooldown_by_motoboy_id, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      ON CONFLICT (route_id) DO UPDATE SET
-        rejection_count = EXCLUDED.rejection_count,
-        last_rejected_at = EXCLUDED.last_rejected_at,
-        rejected_by_motoboy_ids = EXCLUDED.rejected_by_motoboy_ids,
-        cooldown_by_motoboy_id = EXCLUDED.cooldown_by_motoboy_id
-    `, [
-      req.params.routeId, e.storeId ?? '',
-      JSON.stringify(e.orderIds ?? []), e.routeType ?? 'single',
-      e.rejectionCount ?? 0, e.lastRejectedAt ?? null,
-      JSON.stringify(e.rejectedByMotoboyIds ?? []),
-      JSON.stringify(e.cooldownByMotoboyId ?? {}),
-      e.createdAt ?? Date.now(),
-    ]);
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    const isSeller = jwtUser.roles.includes('seller') && !isAdmin;
+    const isMotoboy = jwtUser.roles.includes('motoboy') && !isAdmin;
+
+    // Fetch the existing route entry (if any) to verify ownership
+    const existing = await pool.query('SELECT store_id FROM dispatch_queue WHERE route_id = $1', [req.params.routeId]);
+
+    if (isSeller) {
+      // Seller: resolve their own store_id and enforce ownership
+      const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+      if (profileRow.rows.length === 0) return res.status(403).json({ error: 'Perfil de vendedor não encontrado' });
+      const sellerStoreId = profileRow.rows[0].store_id;
+
+      if (existing.rows.length > 0 && existing.rows[0].store_id !== sellerStoreId) {
+        return res.status(403).json({ error: 'Acesso não autorizado: rota não pertence à sua loja' });
+      }
+
+      await pool.query(`
+        INSERT INTO dispatch_queue (route_id, store_id, order_ids, route_type, rejection_count, last_rejected_at, rejected_by_motoboy_ids, cooldown_by_motoboy_id, created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT (route_id) DO UPDATE SET
+          rejection_count = EXCLUDED.rejection_count,
+          last_rejected_at = EXCLUDED.last_rejected_at,
+          rejected_by_motoboy_ids = EXCLUDED.rejected_by_motoboy_ids,
+          cooldown_by_motoboy_id = EXCLUDED.cooldown_by_motoboy_id
+      `, [
+        req.params.routeId, sellerStoreId,
+        JSON.stringify(e.orderIds ?? []), e.routeType ?? 'single',
+        e.rejectionCount ?? 0, e.lastRejectedAt ?? null,
+        JSON.stringify(e.rejectedByMotoboyIds ?? []),
+        JSON.stringify(e.cooldownByMotoboyId ?? {}),
+        e.createdAt ?? Date.now(),
+      ]);
+    } else if (isMotoboy) {
+      // Motoboys may only update rejection state on existing routes, not create or change store ownership
+      if (existing.rows.length === 0) return res.status(404).json({ error: 'Rota não encontrada' });
+
+      await pool.query(`
+        UPDATE dispatch_queue SET
+          rejection_count = $1,
+          last_rejected_at = $2,
+          rejected_by_motoboy_ids = $3,
+          cooldown_by_motoboy_id = $4
+        WHERE route_id = $5
+      `, [
+        e.rejectionCount ?? 0, e.lastRejectedAt ?? null,
+        JSON.stringify(e.rejectedByMotoboyIds ?? []),
+        JSON.stringify(e.cooldownByMotoboyId ?? {}),
+        req.params.routeId,
+      ]);
+    } else {
+      // Admin: full upsert
+      await pool.query(`
+        INSERT INTO dispatch_queue (route_id, store_id, order_ids, route_type, rejection_count, last_rejected_at, rejected_by_motoboy_ids, cooldown_by_motoboy_id, created_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT (route_id) DO UPDATE SET
+          rejection_count = EXCLUDED.rejection_count,
+          last_rejected_at = EXCLUDED.last_rejected_at,
+          rejected_by_motoboy_ids = EXCLUDED.rejected_by_motoboy_ids,
+          cooldown_by_motoboy_id = EXCLUDED.cooldown_by_motoboy_id
+      `, [
+        req.params.routeId, e.storeId ?? '',
+        JSON.stringify(e.orderIds ?? []), e.routeType ?? 'single',
+        e.rejectionCount ?? 0, e.lastRejectedAt ?? null,
+        JSON.stringify(e.rejectedByMotoboyIds ?? []),
+        JSON.stringify(e.cooldownByMotoboyId ?? {}),
+        e.createdAt ?? Date.now(),
+      ]);
+    }
+
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -700,8 +809,25 @@ router.put('/dispatch-queue/:routeId', requireRole('seller', 'admin', 'motoboy')
   }
 });
 
-router.delete('/dispatch-queue/:routeId', requireRole('seller', 'admin', 'motoboy'), async (req, res) => {
+router.delete('/dispatch-queue/:routeId', requireRole('seller', 'admin'), async (req, res) => {
   try {
+    const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    const isSeller = jwtUser.roles.includes('seller') && !isAdmin;
+
+    if (isSeller) {
+      // Verify the route belongs to the seller's own store before deleting
+      const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
+      if (profileRow.rows.length === 0) return res.status(403).json({ error: 'Perfil de vendedor não encontrado' });
+      const sellerStoreId = profileRow.rows[0].store_id;
+
+      const routeRow = await pool.query('SELECT store_id FROM dispatch_queue WHERE route_id = $1', [req.params.routeId]);
+      if (routeRow.rows.length === 0) return res.status(404).json({ error: 'Rota não encontrada' });
+      if (routeRow.rows[0].store_id !== sellerStoreId) {
+        return res.status(403).json({ error: 'Acesso não autorizado: rota não pertence à sua loja' });
+      }
+    }
+
     await pool.query('DELETE FROM dispatch_queue WHERE route_id = $1', [req.params.routeId]);
     res.json({ ok: true });
   } catch (err) {
@@ -729,10 +855,35 @@ router.get('/reviews/products', async (_req, res) => {
 router.post('/reviews/products', requireAuth, async (req, res) => {
   try {
     const r = req.body;
+    const jwtUser = req.jwtUser!;
+
+    // Enforce clientName from the authenticated user's record — never trust body
+    const userRow = await pool.query('SELECT name FROM users WHERE id = $1', [jwtUser.id]);
+    if (userRow.rows.length === 0) return res.status(403).json({ error: 'Usuário não encontrado' });
+    const clientName = userRow.rows[0].name;
+
+    // Verify the reviewer has at least one delivered order at this store
+    const orderCheck = await pool.query(
+      `SELECT id FROM orders WHERE store_id = $1 AND client_id = $2 AND status = 'delivered' LIMIT 1`,
+      [r.storeId, jwtUser.id]
+    );
+    if (orderCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Você precisa ter um pedido entregue nesta loja para avaliar um produto' });
+    }
+
+    // Prevent duplicate review for the same product by the same client
+    const dupCheck = await pool.query(
+      `SELECT id FROM product_reviews WHERE product_id = $1 AND client_name = $2`,
+      [r.productId, clientName]
+    );
+    if (dupCheck.rows.length > 0) {
+      return res.status(409).json({ error: 'Você já avaliou este produto' });
+    }
+
     await pool.query(`
       INSERT INTO product_reviews (id, product_id, product_name, store_id, rating, message, client_name, created_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-    `, [r.id, r.productId, r.productName, r.storeId, r.rating, r.message, r.clientName, r.createdAt]);
+    `, [r.id, r.productId, r.productName, r.storeId, r.rating, r.message, clientName, r.createdAt]);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -757,10 +908,35 @@ router.get('/reviews/stores', async (_req, res) => {
 router.post('/reviews/stores', requireAuth, async (req, res) => {
   try {
     const r = req.body;
+    const jwtUser = req.jwtUser!;
+
+    // Enforce clientName from the authenticated user's record — never trust body
+    const userRow = await pool.query('SELECT name FROM users WHERE id = $1', [jwtUser.id]);
+    if (userRow.rows.length === 0) return res.status(403).json({ error: 'Usuário não encontrado' });
+    const clientName = userRow.rows[0].name;
+
+    // Verify the order belongs to this client and was delivered
+    const orderRow = await pool.query(
+      `SELECT id FROM orders WHERE id = $1 AND client_id = $2 AND status = 'delivered' LIMIT 1`,
+      [r.orderId, jwtUser.id]
+    );
+    if (orderRow.rows.length === 0) {
+      return res.status(403).json({ error: 'Pedido não encontrado ou ainda não entregue' });
+    }
+
+    // Prevent duplicate review for the same order
+    const dupCheck = await pool.query(
+      `SELECT id FROM store_reviews WHERE order_id = $1`,
+      [r.orderId]
+    );
+    if (dupCheck.rows.length > 0) {
+      return res.status(409).json({ error: 'Este pedido já foi avaliado' });
+    }
+
     await pool.query(`
       INSERT INTO store_reviews (id, store_id, store_name, order_id, rating, message, client_name, created_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-    `, [r.id, r.storeId, r.storeName, r.orderId, r.rating, r.message, r.clientName, r.createdAt]);
+    `, [r.id, r.storeId, r.storeName, r.orderId, r.rating, r.message, clientName, r.createdAt]);
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -808,14 +984,30 @@ router.post('/notifications', requireAuth, async (req, res) => {
   try {
     const n = req.body;
     const jwtUser = req.jwtUser!;
+    const isAdmin = jwtUser.roles.includes('admin');
+    const isSeller = jwtUser.roles.includes('seller') && !isAdmin;
+    const isMotoboy = jwtUser.roles.includes('motoboy') && !isAdmin;
 
-    let storeId: string | null = n.storeId ?? null;
-    let clientId: string | null = n.clientId ?? null;
+    let storeId: string | null;
+    let clientId: string | null;
 
-    // Auto-populate store_id for seller-targeted notifications when sender is the seller
-    if (!storeId && n.target === 'seller' && jwtUser.roles.includes('seller')) {
+    if (isAdmin) {
+      // Admin: full access — accept storeId and clientId from body
+      storeId = n.storeId ?? null;
+      clientId = n.clientId ?? null;
+    } else if (isSeller) {
+      // Seller: storeId is always forced to their own store; clientId from body (for notifying their customers)
       const profileRow = await pool.query('SELECT store_id FROM seller_profile WHERE id = $1', [jwtUser.id]);
       storeId = profileRow.rows[0]?.store_id ?? null;
+      clientId = n.clientId ?? null;
+    } else if (isMotoboy) {
+      // Motoboy: cannot create store-targeted notifications; clientId from body (delivery updates to a specific client)
+      storeId = null;
+      clientId = n.clientId ?? null;
+    } else {
+      // Client: clientId is always their own; storeId is ignored (clients don't create store notifications)
+      storeId = null;
+      clientId = jwtUser.id;
     }
 
     await pool.query(`
@@ -907,7 +1099,7 @@ async function assertOrderAccess(
   const order = orderRow.rows[0];
   if (jwtUser.roles.includes('client') && order.client_id === jwtUser.id) return { allowed: true };
   if (jwtUser.roles.includes('seller') && order.store_id === jwtUser.id) return { allowed: true };
-  if (jwtUser.roles.includes('motoboy') && (order.motoboy_id === jwtUser.id || order.motoboy_id === null)) return { allowed: true };
+  if (jwtUser.roles.includes('motoboy') && order.motoboy_id === jwtUser.id) return { allowed: true };
   return { allowed: false, status: 403, error: 'Acesso não autorizado' };
 }
 
@@ -973,7 +1165,7 @@ router.delete('/chat/:orderId', requireRole('seller', 'admin', 'motoboy'), async
 
 // ─── PRODUCT Q&A ──────────────────────────────────────────────────────────────
 
-router.get('/product-qa', async (_req, res) => {
+router.get('/product-qa', requireAuth, async (_req, res) => {
   try {
     const r = await pool.query('SELECT * FROM product_qa ORDER BY created_at DESC');
     res.json(r.rows.map(row => ({
@@ -1133,6 +1325,17 @@ router.post('/auth/register', async (req, res) => {
     const formatted = formatUser(r.rows[0]);
     const token = signToken({ id: formatted.id, email: formatted.email, roles: formatted.roles });
     res.json({ user: formatted, token });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Erro interno do servidor' });
+  }
+});
+
+router.post('/auth/logout', requireAuth, async (req, res) => {
+  try {
+    const { jti } = req.jwtUser!;
+    if (jti) await revokeToken(jti);
+    res.json({ ok: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Erro interno do servidor' });
@@ -1388,7 +1591,7 @@ router.delete('/promotions/:id', requireRole('seller', 'admin'), async (req, res
 
 // ─── GEOCODE ──────────────────────────────────────────────────────────────────
 
-router.post('/geocode', async (req, res) => {
+router.post('/geocode', requireAuth, async (req, res) => {
   try {
     const { address } = req.body;
     if (!address || typeof address !== 'string') {

@@ -256,6 +256,14 @@ export async function initDb() {
       ALTER TABLE notifications ADD COLUMN IF NOT EXISTS store_id TEXT;
       ALTER TABLE notifications ADD COLUMN IF NOT EXISTS client_id TEXT;
 
+      -- Revoked JWT tokens (logout / token invalidation)
+      CREATE TABLE IF NOT EXISTS revoked_tokens (
+        jti TEXT PRIMARY KEY,
+        expires_at TIMESTAMP NOT NULL
+      );
+      -- Purge already-expired revoked tokens on every startup
+      DELETE FROM revoked_tokens WHERE expires_at < NOW();
+
       -- Dispatch queue — persists motoboy rejection state across reloads
       CREATE TABLE IF NOT EXISTS dispatch_queue (
         route_id TEXT PRIMARY KEY,

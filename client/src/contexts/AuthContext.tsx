@@ -116,8 +116,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
+    // Fire-and-forget: ask server to revoke the current JWT so it cannot be
+    // reused even within its remaining 24-hour validity window.
+    authFetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+
     if (user?.id) {
       localStorage.removeItem(`marketplace-mode_${user.id}`);
+      localStorage.removeItem(`active-client-id_${user.id}`);
     }
     setUser(null);
     localStorage.removeItem(STORAGE_KEY);

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { getAuthToken } from '@/lib/authFetch';
 
 export interface MotoboyCoords {
   lat: number;
@@ -8,7 +9,9 @@ export interface MotoboyCoords {
 
 function getWsUrl() {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${proto}://${window.location.host}/ws/tracking`;
+  const token = getAuthToken();
+  const params = token ? `?token=${encodeURIComponent(token)}` : '';
+  return `${proto}://${window.location.host}/ws/tracking${params}`;
 }
 
 /**
