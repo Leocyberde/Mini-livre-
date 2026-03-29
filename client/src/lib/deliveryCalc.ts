@@ -45,6 +45,24 @@ export async function calcDeliveryFromAddresses(
 }
 
 /**
+ * Calcula distância em km entre dois pontos (Haversine).
+ */
+export function haversineKm(a: [number, number], b: [number, number]): number {
+  const R = 6371;
+  const dLat = ((b[0] - a[0]) * Math.PI) / 180;
+  const dLon = ((b[1] - a[1]) * Math.PI) / 180;
+  const sinDLat = Math.sin(dLat / 2);
+  const sinDLon = Math.sin(dLon / 2);
+  const c =
+    sinDLat * sinDLat +
+    Math.cos((a[0] * Math.PI) / 180) *
+      Math.cos((b[0] * Math.PI) / 180) *
+      sinDLon *
+      sinDLon;
+  return R * 2 * Math.atan2(Math.sqrt(c), Math.sqrt(1 - c));
+}
+
+/**
  * Formata distância para exibição.
  * Ex: 0.85 → "850 m" | 1.2 → "1,2 km" | 3.0 → "3,0 km"
  */

@@ -9,7 +9,7 @@ import { useMotoboyRegistry } from '@/contexts/MotoboyRegistryContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useMotoboyClientChat } from '@/contexts/MotoboyClientChatContext';
 import { Order, mockStoreCoords, mockStores, Store } from '@/lib/mockData';
-import { formatKm, calcDoubleRouteValues, calcMotoRideValue } from '@/lib/deliveryCalc';
+import { formatKm, calcDoubleRouteValues, calcMotoRideValue, haversineKm } from '@/lib/deliveryCalc';
 import {
   Home, TrendingUp, HelpCircle, MoreHorizontal,
   Eye, EyeOff, Bell, BellDot, Navigation,
@@ -21,6 +21,7 @@ import {
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useSupport, MOTOBOY_SUPPORT_OPTIONS, MOTOBOY_ENTREGA_SUPPORT_OPTIONS, MOTOBOY_CHEGADA_SUPPORT_OPTIONS, SupportCategory } from '@/contexts/SupportContext';
+import { authApi } from '@/lib/authFetch';
 
 const MOTOBOY_ID = 'motoboy-1';
 const MOTOBOY_NAME = '🏍️ Motoboy';
@@ -655,12 +656,14 @@ function StackingModal({
   stackOrder,
   currentRouteValue,
   currentRouteKm,
+  betweenKm,
   onAccept,
   onReject,
 }: {
   stackOrder: Order;
   currentRouteValue: number;
   currentRouteKm: number;
+  betweenKm: number;
   onAccept: () => void;
   onReject: () => void;
 }) {
@@ -678,8 +681,8 @@ function StackingModal({
     return () => clearInterval(t);
   }, []);
 
-  const addKm = stackOrder.distanceKm ?? 3;
-  const addValue = calcDoubleRouteValues(currentRouteKm + addKm).order2Value;
+  // totalRouteKm = store → first delivery + first delivery → second delivery
+  const addValue = calcDoubleRouteValues(currentRouteKm + betweenKm).order2Value;
   const newTotal = parseFloat((currentRouteValue + addValue).toFixed(2));
 
   const RADIUS = 36;
@@ -741,7 +744,7 @@ function StackingModal({
           <div className="grid grid-cols-3 gap-2">
             <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl p-2.5 text-center">
               <p className="text-orange-400 text-[9px] font-bold tracking-widest mb-1">+KM</p>
-              <p className="text-orange-400 text-base font-bold">{formatKm(addKm)}</p>
+              <p className="text-orange-400 text-base font-bold">{formatKm(betweenKm)}</p>
             </div>
             <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl p-2.5 text-center">
               <p className="text-purple-400 text-[9px] font-bold tracking-widest mb-1">+VALOR</p>
@@ -2692,11 +2695,7 @@ export default function MotoboyPanel() {
         setActiveMotoboyId(myMotoboy.id);
       } else if (!ensuredRef.current) {
         ensuredRef.current = true;
-        fetch('/api/motoboys/ensure', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: user.id }),
-        })
+        authApi('POST', '/api/motoboys/ensure', { userId: user.id })
           .then(r => r.json())
           .then(mb => {
             if (mb && mb.id) {
@@ -2777,11 +2776,18 @@ export default function MotoboyPanel() {
 
   const handleAcceptStack = () => {
     if (!stackEntry || !stackOrder || !activeRouteId) return;
+    const firstOrder = activeOrders[0];
+    const firstDist = firstOrder?.distanceKm ?? 3;
+    const between = haversineKm(
+      [firstOrder?.deliveryCoords?.lat ?? 0, firstOrder?.deliveryCoords?.lng ?? 0],
+      [stackOrder.deliveryCoords?.lat ?? 0, stackOrder.deliveryCoords?.lng ?? 0],
+    );
+    const addValue = calcDoubleRouteValues(firstDist + between).order2Value;
     updateOrderStatus(stackOrder.id, 'motoboy_accepted');
     acceptDispatch(stackEntry.routeId);
     addOrderToActiveRoute(activeRouteId, stackOrder.id);
     setActiveOrders(prev => [...prev, stackOrder]);
-    addValueToCurrentRoute(stackOrder.motoRideValue ?? 8.5);
+    addValueToCurrentRoute(addValue);
     setStackingDismissed(prev => new Set([...prev, stackEntry.routeId]));
   };
 
@@ -3046,15 +3052,23 @@ export default function MotoboyPanel() {
       )}
 
       {/* Stacking modal — offered when motoboy is at pickup or en-route to store */}
-      {stackOrder && stackEntry && !pendingNotificationOrders.length && (
-        <StackingModal
-          stackOrder={stackOrder}
-          currentRouteValue={activeOrders.reduce((s, o) => s + (o.motoRideValue ?? 8.5), 0)}
-          currentRouteKm={activeOrders.reduce((s, o) => s + (o.distanceKm ?? 3), 0)}
-          onAccept={handleAcceptStack}
-          onReject={handleRejectStack}
-        />
-      )}
+      {stackOrder && stackEntry && !pendingNotificationOrders.length && (() => {
+        const firstOrder = activeOrders[0];
+        const stackBetweenKm = haversineKm(
+          [firstOrder?.deliveryCoords?.lat ?? 0, firstOrder?.deliveryCoords?.lng ?? 0],
+          [stackOrder.deliveryCoords?.lat ?? 0, stackOrder.deliveryCoords?.lng ?? 0],
+        );
+        return (
+          <StackingModal
+            stackOrder={stackOrder}
+            currentRouteValue={activeOrders.reduce((s, o) => s + (o.motoRideValue ?? 8.5), 0)}
+            currentRouteKm={firstOrder?.distanceKm ?? 3}
+            betweenKm={stackBetweenKm}
+            onAccept={handleAcceptStack}
+            onReject={handleRejectStack}
+          />
+        );
+      })()}
 
       {/* Content area */}
       <div className={`flex-1 overflow-y-auto ${activeTab === 'inicio' ? 'overflow-hidden' : ''}`}>

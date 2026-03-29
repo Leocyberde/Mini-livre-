@@ -4,12 +4,12 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "server": "npx tsx server/index.ts",
-    "dev": "npx tsx server/index.ts & npx vite --host 0.0.0.0 --port 5000",
-    "build": "npx vite build && npx esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "server": "pnpm exec tsx server/index.ts",
+    "dev": "pnpm exec tsx server/index.ts & pnpm exec vite --host 0.0.0.0 --port 5000",
+    "build": "pnpm exec vite build && pnpm exec esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
-    "preview": "npx vite preview --host",
-    "check": "npx tsc --noEmit"
+    "preview": "pnpm exec vite preview --host",
+    "check": "pnpm exec tsc --noEmit"
   },
   "dependencies": {
     "@esbuild/linux-x64": "0.25.10",
