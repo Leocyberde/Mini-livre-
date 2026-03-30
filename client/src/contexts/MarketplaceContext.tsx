@@ -6,7 +6,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { CartItem, Order } from '@/lib/mockData';
 import { useNotification } from './NotificationContext';
-import { calcMotoRideValue, calcDoubleRouteValues, haversineKm } from '@/lib/deliveryCalc';
+import { calcMotoRideValue, calcDoubleRouteValues } from '@/lib/deliveryCalc';
 import { authFetch } from '@/lib/authFetch';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -19,7 +19,7 @@ import {
   GROUPING_WINDOW_MS,
   MAX_DELIVERY_DISTANCE_KM,
 } from './marketplace/types';
-import { api } from './marketplace/utils';
+import { haversineKm, api } from './marketplace/utils';
 
 export type { UserMode, DeliveryRoute, ActiveDeliveryRoute, GroupingSlot, DispatchEntry };
 

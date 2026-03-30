@@ -5,7 +5,7 @@
   "license": "MIT",
   "scripts": {
     "server": "tsx server/index.ts",
-    "dev": "./node_modules/.bin/tsx server/index.ts & ./node_modules/.bin/vite --host 0.0.0.0 --port 5000",
+    "dev": "tsx server/index.ts & vite --host 0.0.0.0 --port 5000",
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outfile=dist/index.js",
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
