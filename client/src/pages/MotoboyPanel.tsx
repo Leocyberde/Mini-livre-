@@ -137,11 +137,8 @@ export default function MotoboyPanel() {
     if (!stackEntry || !stackOrder || !activeRouteId) return;
     const firstOrder = activeOrders[0];
     const firstDist = firstOrder?.distanceKm ?? 3;
-    const between = haversineKm(
-      [firstOrder?.deliveryCoords?.lat ?? 0, firstOrder?.deliveryCoords?.lng ?? 0],
-      [stackOrder.deliveryCoords?.lat ?? 0, stackOrder.deliveryCoords?.lng ?? 0],
-    );
-    const addValue = calcDoubleRouteValues(firstDist + between).order2Value;
+    const stackDist = stackOrder.distanceKm ?? 3;
+    const addValue = calcDoubleRouteValues(firstDist + stackDist).order2Value;
     updateOrderStatus(stackOrder.id, 'motoboy_accepted');
     acceptDispatch(stackEntry.routeId);
     addOrderToActiveRoute(activeRouteId, stackOrder.id);
@@ -413,8 +410,8 @@ export default function MotoboyPanel() {
       {stackOrder && stackEntry && !pendingNotificationOrders.length && (() => {
         const firstOrder = activeOrders[0];
         const stackBetweenKm = haversineKm(
-          [firstOrder?.deliveryCoords?.lat ?? 0, firstOrder?.deliveryCoords?.lng ?? 0],
-          [stackOrder.deliveryCoords?.lat ?? 0, stackOrder.deliveryCoords?.lng ?? 0],
+          firstOrder?.deliveryCoords ?? [0, 0],
+          stackOrder.deliveryCoords ?? [0, 0],
         );
         return (
           <StackingModal

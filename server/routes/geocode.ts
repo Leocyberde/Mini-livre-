@@ -1,11 +1,10 @@
 import { Router } from 'express';
-import { requireAuth } from '../auth.js';
 
 const router = Router();
 
 // ─── GEOCODE ──────────────────────────────────────────────────────────────────
 
-router.post('/geocode', requireAuth, async (req, res) => {
+router.post('/geocode', async (req, res) => {
   try {
     const { address } = req.body;
     if (!address || typeof address !== 'string') {

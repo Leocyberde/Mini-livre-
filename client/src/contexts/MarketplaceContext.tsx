@@ -330,13 +330,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       const second = sorted[1];
 
       const nearestDist = nearest?.distanceKm ?? 3;
-      // Distance between the two delivery addresses (Haversine estimate)
-      const between = betweenKm ?? haversineKm(
-        nearest?.deliveryCoords ?? [0, 0],
-        second?.deliveryCoords ?? [0, 0],
-      );
-      // Total route: Store → nearest delivery → second delivery
-      const totalRouteKm = nearestDist + between;
+      const secondDist = second?.distanceKm ?? 3;
+      // Total km = sum of both individual store→delivery distances,
+      // matching exactly what is displayed in the notification modal.
+      const totalRouteKm = nearestDist + secondDist;
       const { order1Value, order2Value } = calcDoubleRouteValues(totalRouteKm);
 
       rideValueMap.set(nearest?.id ?? orderIds[0], order1Value);
@@ -402,8 +399,8 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           const o1 = readyOrders[0];
           const o2 = readyOrders[1];
           const dist = haversineKm(
-            [o1.deliveryCoords?.lat ?? 0, o1.deliveryCoords?.lng ?? 0],
-            [o2.deliveryCoords?.lat ?? 0, o2.deliveryCoords?.lng ?? 0],
+            o1.deliveryCoords ?? [0, 0],
+            o2.deliveryCoords ?? [0, 0],
           );
 
           if (dist <= MAX_DELIVERY_DISTANCE_KM) {
