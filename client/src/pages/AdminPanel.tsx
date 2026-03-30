@@ -12,9 +12,8 @@ import { Button } from '@/components/ui/button';
 import {
   Users, TrendingUp, ShoppingCart, DollarSign, Bike, Package, Headphones, History,
 } from 'lucide-react';
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
-import { authFetch } from '@/lib/authFetch';
 import { useSupport } from '@/contexts/SupportContext';
 import { useNotification } from '@/contexts/NotificationContext';
 import { Order, Store as StoreData } from '@/lib/mockData';
@@ -40,40 +39,33 @@ export default function AdminPanel() {
   const registry = useMotoboyRegistry();
   const { products } = useProducts();
 
-  // ── Real store data fetched from /api/stores (includes isBlocked) ───────────
+  // ── Real store data fetched from seller profile ───────────────────────────
   const [realStores, setRealStores] = useState<StoreData[]>([]);
-
-  const fetchStores = useCallback(() => {
-    fetch('/api/stores')
+  useEffect(() => {
+    fetch('/api/profiles/seller')
       .then(r => r.json())
-      .then((stores: Array<{
-        id: string; name: string; category: string; description: string;
-        logo: string; address?: { bairro?: string; cidade?: string; logradouro?: string; numero?: string };
-        isBlocked: boolean;
-      }>) => {
-        setRealStores(stores.map(s => {
-          const bairro = s.address?.bairro || '';
-          const cidade = s.address?.cidade || '';
-          return {
-            id: s.id,
-            name: s.name,
-            category: s.category || '',
+      .then(profile => {
+        if (profile?.storeName) {
+          const bairro = profile.address?.bairro || '';
+          const cidade = profile.address?.cidade || '';
+          const location = [bairro, cidade].filter(Boolean).join(', ');
+          setRealStores([{
+            id: profile.storeId || 'store-1',
+            name: profile.storeName,
+            category: profile.storeCategory || '',
             rating: 0,
             reviews: 0,
-            location: [bairro, cidade].filter(Boolean).join(', '),
-            address: s.address
-              ? [s.address.logradouro, s.address.numero].filter(Boolean).join(', ')
+            location,
+            address: profile.address
+              ? [profile.address.logradouro, profile.address.numero].filter(Boolean).join(', ')
               : undefined,
-            description: s.description || '',
-            logo: s.logo || '🏪',
-            isBlocked: s.isBlocked,
-          };
-        }));
+            description: profile.storeDescription || '',
+            logo: profile.storeLogo || '🏪',
+          }]);
+        }
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => { fetchStores(); }, [fetchStores]);
 
   // ── Real categories derived from actual products ──────────────────────────
   const realCategories = useMemo(() => {
@@ -135,13 +127,15 @@ export default function AdminPanel() {
 
   // ── Store management state ──────────────────────────────────────────────────
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
+  const [blockedStores, setBlockedStores] = useState<Set<string>>(new Set());
+  const [deletedStores, setDeletedStores] = useState<Set<string>>(new Set());
   const [deleteConfirm, setDeleteConfirm] = useState<{ storeId: string; storeName: string } | null>(null);
   const [notifDialog, setNotifDialog] = useState<{ storeId: string; storeName: string } | null>(null);
   const [notifTitle, setNotifTitle] = useState('');
   const [notifBody, setNotifBody] = useState('');
   const [storeOrderFilter, setStoreOrderFilter] = useState<'all' | 'active' | 'delivered' | 'cancelled'>('all');
 
-  const visibleStores = realStores;
+  const visibleStores = useMemo(() => realStores.filter(s => !deletedStores.has(s.id)), [realStores, deletedStores]);
   const selectedStore = selectedStoreId ? visibleStores.find(s => s.id === selectedStoreId) ?? null : null;
 
   const activeStatuses: Order['status'][] = ['pending', 'preparing', 'ready', 'ready_for_pickup', 'waiting_motoboy', 'motoboy_accepted', 'motoboy_at_store', 'on_the_way', 'motoboy_arrived'];
@@ -154,35 +148,26 @@ export default function AdminPanel() {
     return storeOrders;
   };
 
-  const handleDeleteStore = async () => {
+  const handleDeleteStore = () => {
     if (!deleteConfirm) return;
-    try {
-      const res = await authFetch(`/api/admin/stores/${deleteConfirm.storeId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed');
-      if (selectedStoreId === deleteConfirm.storeId) setSelectedStoreId(null);
-      toast.success(`Loja "${deleteConfirm.storeName}" excluída da plataforma.`);
-      fetchStores();
-    } catch {
-      toast.error('Erro ao excluir loja.');
-    }
+    setDeletedStores(prev => { const next = new Set(prev); next.add(deleteConfirm.storeId); return next; });
+    if (selectedStoreId === deleteConfirm.storeId) setSelectedStoreId(null);
+    toast.success(`Loja "${deleteConfirm.storeName}" excluída da plataforma.`);
     setDeleteConfirm(null);
   };
 
-  const handleToggleBlock = async (storeId: string, storeName: string) => {
-    const store = realStores.find(s => s.id === storeId);
-    try {
-      const res = await authFetch(`/api/admin/stores/${storeId}/block`, { method: 'PATCH' });
-      if (!res.ok) throw new Error('Failed');
-      const data = await res.json();
-      if (data.isBlocked) {
-        toast.warning(`Loja "${storeName}" bloqueada.`);
-      } else {
+  const handleToggleBlock = (storeId: string, storeName: string) => {
+    setBlockedStores(prev => {
+      const next = new Set(prev);
+      if (next.has(storeId)) {
+        next.delete(storeId);
         toast.success(`Loja "${storeName}" reativada.`);
+      } else {
+        next.add(storeId);
+        toast.warning(`Loja "${storeName}" bloqueada.`);
       }
-      fetchStores();
-    } catch {
-      toast.error(`Erro ao ${store?.isBlocked ? 'reativar' : 'bloquear'} loja.`);
-    }
+      return next;
+    });
   };
 
   const handleSendNotification = () => {
@@ -445,6 +430,7 @@ export default function AdminPanel() {
             selectedStore={selectedStore}
             selectedStoreId={selectedStoreId}
             setSelectedStoreId={setSelectedStoreId}
+            blockedStores={blockedStores}
             deleteConfirm={deleteConfirm}
             setDeleteConfirm={setDeleteConfirm}
             notifDialog={notifDialog}

@@ -45,8 +45,6 @@ export async function initDb() {
         store_email TEXT NOT NULL DEFAULT '',
         address JSONB
       );
-      ALTER TABLE seller_profile ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN NOT NULL DEFAULT FALSE;
-      ALTER TABLE seller_profile ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN NOT NULL DEFAULT FALSE;
 
       -- Perfis de clientes
       CREATE TABLE IF NOT EXISTS client_profiles (

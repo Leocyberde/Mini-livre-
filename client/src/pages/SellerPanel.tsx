@@ -5,7 +5,7 @@
 import { useMarketplace } from '@/contexts/MarketplaceContext';
 import { useProducts } from '@/contexts/ProductContext';
 import { useProfile } from '@/contexts/ProfileContext';
-import { calcDeliveryFee } from '@/lib/deliveryCalc';
+import { calcMotoRideValue as calcDeliveryFee } from '@/lib/deliveryCalc';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
