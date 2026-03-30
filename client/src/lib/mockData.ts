@@ -153,27 +153,3 @@ export interface Motoboy {
   rejectedTotal: number;
 }
 
-// Empty arrays - data is now loaded from the database
-export const mockStores: Store[] = [];
-export const initialMotoboys: Motoboy[] = [];
-
-// Helper functions - return undefined/empty since data is now from the DB
-export function getStoreById(_storeId: string): Store | undefined {
-  return undefined;
-}
-
-export function getProductsByStore(_storeId: string): never[] {
-  return [];
-}
-
-export function getProductById(_productId: string): undefined {
-  return undefined;
-}
-
-export function searchProducts(_query: string): never[] {
-  return [];
-}
-
-export function getProductsByCategory(_category: string): never[] {
-  return [];
-}

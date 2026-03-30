@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
-import { Order, mockStoreCoords, mockStores } from '@/lib/mockData';
+import { Order, mockStoreCoords } from '@/lib/mockData';
 import { formatKm } from '@/lib/deliveryCalc';
 import { CheckCircle2, X } from 'lucide-react';
 import {
@@ -167,7 +167,7 @@ export function RouteNotificationModal({
               <p className="text-gray-400 text-[10px] font-bold tracking-widest">COLETA</p>
               <p className="text-white text-sm font-semibold leading-tight">{firstOrder.storeName || `Loja #${firstOrder.storeId}`}</p>
               {(() => {
-                const storeAddr = firstOrder.storeAddress || mockStores.find(s => s.id === firstOrder.storeId)?.address;
+                const storeAddr = firstOrder.storeAddress;
                 return storeAddr ? <p className="text-gray-400 text-xs mt-0.5 leading-snug">{storeAddr}</p> : null;
               })()}
             </div>

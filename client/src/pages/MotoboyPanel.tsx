@@ -5,7 +5,7 @@ import { useMotoboy } from '@/contexts/MotoboyContext';
 import { useMarketplace } from '@/contexts/MarketplaceContext';
 import { useMotoboyRegistry } from '@/contexts/MotoboyRegistryContext';
 import { useAuth } from '@/contexts/AuthContext';
-import { Order, mockStores, Store } from '@/lib/mockData';
+import { Order, Store } from '@/lib/mockData';
 import { calcDoubleRouteValues, haversineKm } from '@/lib/deliveryCalc';
 import {
   Home, TrendingUp, HelpCircle, MoreHorizontal, Loader2,
@@ -73,7 +73,7 @@ export default function MotoboyPanel() {
       if (order) {
         setActiveOrder(order);
         setActiveOrders(prev => prev.length > 0 ? prev : [order]);
-        setActiveStore(mockStores.find(s => s.id === order.storeId));
+        setActiveStore(undefined);
       }
       if (screenPhase) {
         setScreenVisible(true);
@@ -157,7 +157,6 @@ export default function MotoboyPanel() {
 
   const handleAcceptRoute = (orders: Order[], routeId: string) => {
     const firstOrder = orders[0];
-    const store = mockStores.find(s => s.id === firstOrder.storeId);
     const totalValue = orders.reduce((sum, o) => sum + (o.motoRideValue ?? 8.5), 0);
 
     // Mark all orders as motoboy_accepted
@@ -166,12 +165,12 @@ export default function MotoboyPanel() {
     }
     acceptDispatch(routeId);
     startRoute({
-      from: firstOrder.storeName || store?.name || `Loja #${firstOrder.storeId}`,
+      from: firstOrder.storeName || `Loja #${firstOrder.storeId}`,
       to: firstOrder.deliveryAddress
         ? `${firstOrder.deliveryAddress.logradouro}, ${firstOrder.deliveryAddress.numero} - ${firstOrder.deliveryAddress.bairro}`
         : 'Destino',
       value: totalValue,
-      storeAddress: firstOrder.storeAddress || store?.address,
+      storeAddress: firstOrder.storeAddress,
     });
     setActiveOrderId(firstOrder.id);
     setActiveOrder(firstOrder);
@@ -179,7 +178,7 @@ export default function MotoboyPanel() {
     setActiveRouteId(routeId);
     setDeliveryOrderIndex(0);
     setDeliveredOrderIds(new Set());
-    setActiveStore(store);
+    setActiveStore(undefined);
     setScreenPhase('coleta');
     setScreenVisible(true);
   };

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { Motoboy, MotoboyStatus, initialMotoboys } from '@/lib/mockData';
+import { Motoboy, MotoboyStatus } from '@/lib/mockData';
 import { authApi } from '@/lib/authFetch';
 
 export type { MotoboyStatus };
@@ -36,9 +36,6 @@ export function MotoboyRegistryProvider({ children }: { children: React.ReactNod
         setMotoboys(data);
         // Do NOT auto-select based on isActiveSession — that flag is global across all users.
         // MotoboyPanel is responsible for selecting the correct profile for the logged-in user.
-      } else if (initialMotoboys.length > 0) {
-        setMotoboys(initialMotoboys);
-        api('POST', '/api/motoboys/bulk', initialMotoboys);
       }
       setIsLoadingMotoboys(false);
     }).catch(() => setIsLoadingMotoboys(false));
