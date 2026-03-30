@@ -68,7 +68,9 @@ router.put('/profiles/seller', requireRole('seller', 'admin'), async (req, res) 
 
 router.get('/stores', async (_req, res) => {
   try {
-    const r = await pool.query('SELECT * FROM seller_profile WHERE store_name IS NOT NULL AND store_name != \'\'');
+    const r = await pool.query(
+      "SELECT * FROM seller_profile WHERE store_name IS NOT NULL AND store_name != '' AND is_deleted = FALSE"
+    );
     res.json(r.rows.map(row => ({
       id: row.id,
       name: row.store_name,
@@ -78,7 +80,37 @@ router.get('/stores', async (_req, res) => {
       phone: row.store_phone,
       email: row.store_email,
       address: row.address,
+      isBlocked: row.is_blocked ?? false,
     })));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── ADMIN STORE MANAGEMENT ──────────────────────────────────────────────────
+
+router.patch('/admin/stores/:storeId/block', requireRole('admin'), async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const r = await pool.query('SELECT is_blocked FROM seller_profile WHERE id = $1', [storeId]);
+    if (r.rows.length === 0) return res.status(404).json({ error: 'Store not found' });
+    const newBlocked = !r.rows[0].is_blocked;
+    await pool.query('UPDATE seller_profile SET is_blocked = $1 WHERE id = $2', [newBlocked, storeId]);
+    res.json({ ok: true, isBlocked: newBlocked });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.delete('/admin/stores/:storeId', requireRole('admin'), async (req, res) => {
+  try {
+    const { storeId } = req.params;
+    const r = await pool.query('SELECT id FROM seller_profile WHERE id = $1', [storeId]);
+    if (r.rows.length === 0) return res.status(404).json({ error: 'Store not found' });
+    await pool.query('UPDATE seller_profile SET is_deleted = TRUE WHERE id = $1', [storeId]);
+    res.json({ ok: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });

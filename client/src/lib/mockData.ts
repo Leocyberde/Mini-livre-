@@ -25,6 +25,8 @@ export interface Store {
   email?: string;
   description: string;
   logo?: string;
+  isBlocked?: boolean;
+  isDeleted?: boolean;
 }
 
 export interface Product {

@@ -71,8 +71,25 @@ export function formatKm(km: number): string {
   return `${km.toFixed(1).replace('.', ',')} km`;
 }
 
-// Mantendo as funções de cálculo de valor do motoboy para uso no frontend se necessário,
-// mas o ideal é que o backend também forneça esses valores se forem sensíveis.
+/**
+ * Calcula a taxa de entrega cobrada do cliente.
+ * Espelha a lógica do backend (server/delivery.ts → calcDeliveryFee).
+ * - Até 5 km: R$ 12,00
+ * - Acima de 5 km: R$ 12,00 + R$ 2,00 por km adicional
+ */
+export function calcDeliveryFee(distanceKm: number): number {
+  const BASE_FEE = 12.0;
+  const BASE_DISTANCE = 5.0;
+  const EXTRA_PER_KM = 2.0;
+  if (distanceKm <= BASE_DISTANCE) return BASE_FEE;
+  return parseFloat((BASE_FEE + (distanceKm - BASE_DISTANCE) * EXTRA_PER_KM).toFixed(2));
+}
+
+/**
+ * Calcula o valor de repasse ao motoboy (ganho do entregador), NÃO a taxa cobrada do cliente.
+ * - Até 5 km: R$ 8,50
+ * - Acima de 5 km: R$ 8,50 + R$ 1,50 por km adicional
+ */
 export function calcMotoRideValue(distanceKm: number): number {
   if (distanceKm <= 5) return 8.5;
   return parseFloat((8.5 + (distanceKm - 5) * 1.5).toFixed(2));

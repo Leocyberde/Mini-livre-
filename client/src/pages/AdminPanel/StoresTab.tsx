@@ -22,7 +22,6 @@ interface StoresTabProps {
   selectedStore: StoreData | null;
   selectedStoreId: string | null;
   setSelectedStoreId: (id: string | null) => void;
-  blockedStores: Set<string>;
   deleteConfirm: { storeId: string; storeName: string } | null;
   setDeleteConfirm: (v: { storeId: string; storeName: string } | null) => void;
   notifDialog: { storeId: string; storeName: string } | null;
@@ -54,7 +53,6 @@ export default function StoresTab({
   selectedStore,
   selectedStoreId,
   setSelectedStoreId,
-  blockedStores,
   deleteConfirm,
   setDeleteConfirm,
   notifDialog,
@@ -106,9 +104,9 @@ export default function StoresTab({
                 <Bell className="w-4 h-4" /> Notificação
               </Button>
               <Button size="sm" variant="outline"
-                className={`gap-2 ${blockedStores.has(selectedStore.id) ? 'text-green-700 border-green-400' : 'text-orange-700 border-orange-400'}`}
+                className={`gap-2 ${selectedStore.isBlocked ? 'text-green-700 border-green-400' : 'text-orange-700 border-orange-400'}`}
                 onClick={() => handleToggleBlock(selectedStore.id, selectedStore.name)}>
-                {blockedStores.has(selectedStore.id) ? <><ShieldCheck className="w-4 h-4" /> Reativar</> : <><ShieldOff className="w-4 h-4" /> Bloquear</>}
+                {selectedStore.isBlocked ? <><ShieldCheck className="w-4 h-4" /> Reativar</> : <><ShieldOff className="w-4 h-4" /> Bloquear</>}
               </Button>
               <Button size="sm" variant="outline" className="gap-2 text-red-600 border-red-300 hover:bg-red-50"
                 onClick={() => setDeleteConfirm({ storeId: selectedStore.id, storeName: selectedStore.name })}>
@@ -158,7 +156,7 @@ export default function StoresTab({
               </div>
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Status</p>
-                {blockedStores.has(selectedStore.id)
+                {selectedStore.isBlocked
                   ? <Badge className="bg-red-100 text-red-800">Bloqueada</Badge>
                   : <Badge className="bg-green-100 text-green-800">Ativa</Badge>}
               </div>
@@ -400,7 +398,7 @@ export default function StoresTab({
           <div className="flex items-center justify-between flex-wrap gap-3">
             <p className="text-sm text-muted-foreground">
               {visibleStores.length} loja{visibleStores.length !== 1 ? 's' : ''} cadastrada{visibleStores.length !== 1 ? 's' : ''} ·{' '}
-              {visibleStores.filter(s => blockedStores.has(s.id)).length} bloqueada{visibleStores.filter(s => blockedStores.has(s.id)).length !== 1 ? 's' : ''}
+              {visibleStores.filter(s => s.isBlocked).length} bloqueada{visibleStores.filter(s => s.isBlocked).length !== 1 ? 's' : ''}
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -409,7 +407,7 @@ export default function StoresTab({
               const storeSales = storeOrders.reduce((s, o) => s + o.total, 0);
               const deliveredCount = storeOrders.filter(o => o.status === 'delivered').length;
               const activeCount = storeOrders.filter(o => activeStatuses.includes(o.status)).length;
-              const isBlocked = blockedStores.has(store.id);
+              const isBlocked = store.isBlocked ?? false;
 
               return (
                 <Card key={store.id} className={`p-6 hover:shadow-lg transition-all ${isBlocked ? 'opacity-60 border-red-200' : ''}`}>
