@@ -39,30 +39,26 @@ export default function AdminPanel() {
   const registry = useMotoboyRegistry();
   const { products } = useProducts();
 
-  // ── Real store data fetched from seller profile ───────────────────────────
+  // ── Real store data fetched from all seller profiles ─────────────────────
   const [realStores, setRealStores] = useState<StoreData[]>([]);
   useEffect(() => {
-    fetch('/api/profiles/seller')
-      .then(r => r.json())
-      .then(profile => {
-        if (profile?.storeName) {
-          const bairro = profile.address?.bairro || '';
-          const cidade = profile.address?.cidade || '';
-          const location = [bairro, cidade].filter(Boolean).join(', ');
-          setRealStores([{
-            id: profile.storeId || 'store-1',
-            name: profile.storeName,
-            category: profile.storeCategory || '',
-            rating: 0,
-            reviews: 0,
-            location,
-            address: profile.address
-              ? [profile.address.logradouro, profile.address.numero].filter(Boolean).join(', ')
-              : undefined,
-            description: profile.storeDescription || '',
-            logo: profile.storeLogo || '🏪',
-          }]);
-        }
+    fetch('/api/stores')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: Array<{ id: string; name: string; category: string; description: string; logo: string; phone?: string; email?: string; address: Record<string, string> | null }>) => {
+        if (!Array.isArray(data)) return;
+        setRealStores(data.map(s => ({
+          id: s.id,
+          name: s.name || '',
+          category: s.category || '',
+          rating: 0,
+          reviews: 0,
+          location: s.address ? [s.address.bairro, s.address.cidade].filter(Boolean).join(', ') : '',
+          address: s.address ? [s.address.logradouro, s.address.numero].filter(Boolean).join(', ') : undefined,
+          description: s.description || '',
+          logo: s.logo || '🏪',
+          phone: s.phone,
+          email: s.email,
+        })));
       })
       .catch(() => {});
   }, []);
