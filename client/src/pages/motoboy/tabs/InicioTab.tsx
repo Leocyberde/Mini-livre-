@@ -299,6 +299,3 @@ export function InicioTab({ isDark, onToggleDark, onOpenColeta }: { isDark: bool
   );
 }
 
-function useMotoby() {
-  return useMotoboy();
-}

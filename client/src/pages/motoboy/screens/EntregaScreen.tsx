@@ -1,14 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMotoboyClientChat } from '@/contexts/MotoboyClientChatContext';
-import { useSupport, MOTOBOY_ENTREGA_SUPPORT_OPTIONS } from '@/contexts/SupportContext';
+import { MOTOBOY_ENTREGA_SUPPORT_OPTIONS } from '@/contexts/SupportContext';
 import { Order } from '@/lib/mockData';
 import { Home, Clock, Map, MessageCircle, Navigation, UserRound } from 'lucide-react';
 import { MotoboySupportModal } from '../components/MotoboySupportModal';
 import { MotoboyClientChatModal } from '../components/MotoboyClientChatModal';
 import { DeliveryChoiceMap } from './DeliveryChoiceMap';
 import { ENTREGA_DURATION } from '../utils/mapUtils';
-
-void useSupport;
 
 export function EntregaScreen({
   order,

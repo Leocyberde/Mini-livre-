@@ -1,12 +1,10 @@
 import { useState } from 'react';
 import { useMotoboyClientChat } from '@/contexts/MotoboyClientChatContext';
-import { useSupport, MOTOBOY_CHEGADA_SUPPORT_OPTIONS } from '@/contexts/SupportContext';
+import { MOTOBOY_CHEGADA_SUPPORT_OPTIONS } from '@/contexts/SupportContext';
 import { Order } from '@/lib/mockData';
 import { Home, Map, MessageCircle, CheckCircle2, X, Delete, Smartphone, UserRound } from 'lucide-react';
 import { MotoboySupportModal } from '../components/MotoboySupportModal';
 import { MotoboyClientChatModal } from '../components/MotoboyClientChatModal';
-
-void useSupport;
 
 export function ChegadaEntregaScreen({
   order,
@@ -29,9 +27,6 @@ export function ChegadaEntregaScreen({
   const [showSupportModal, setShowSupportModal] = useState(false);
   const [showClientChatModal, setShowClientChatModal] = useState(false);
   const clientUnread = getUnreadCount(order.id, 'motoboy');
-
-  void deliveryIndex;
-  void totalDeliveries;
 
   const deliveryAddressLine = order.deliveryAddress
     ? `${order.deliveryAddress.logradouro}, ${order.deliveryAddress.numero}, ${order.deliveryAddress.bairro}${order.deliveryAddress.cidade ? `, ${order.deliveryAddress.cidade}` : ''}`
