@@ -154,7 +154,14 @@ export default function MotoboyPanel() {
 
   const handleAcceptRoute = (orders: Order[], routeId: string) => {
     const firstOrder = orders[0];
-    const totalValue = orders.reduce((sum, o) => sum + (o.motoRideValue ?? 8.5), 0);
+    const isDoubleRoute = orders.length >= 2;
+    const totalKmForValue = orders.reduce((sum, o) => sum + (o.distanceKm ?? 3), 0);
+    const totalValue = isDoubleRoute
+      ? parseFloat((() => {
+          const { order1Value, order2Value } = calcDoubleRouteValues(totalKmForValue);
+          return (order1Value + order2Value).toFixed(2);
+        })())
+      : orders.reduce((sum, o) => sum + (o.motoRideValue ?? 8.5), 0);
 
     // Mark all orders as motoboy_accepted
     for (const order of orders) {

@@ -35,8 +35,19 @@ export function EntregaScreen({
   const [holdDone, setHoldDone] = useState(false);
   const [showConfirmArrival, setShowConfirmArrival] = useState(false);
   const [showDeliveryMap, setShowDeliveryMap] = useState(false);
+  const [mapRequired, setMapRequired] = useState(false);
+  const [routeChosen, setRouteChosen] = useState(false);
   const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isDoubleRoute = allOrders.length > 1;
+
+  // Auto-open route choice map on first mount for double routes so motoboy picks delivery order
+  useEffect(() => {
+    if (isDoubleRoute && deliveryIndex === 0 && onSelectDelivery) {
+      setShowDeliveryMap(true);
+      setMapRequired(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -91,8 +102,14 @@ export function EntregaScreen({
         <DeliveryChoiceMap
           orders={allOrders}
           currentIndex={deliveryIndex}
-          onSelectDelivery={onSelectDelivery}
-          onClose={() => setShowDeliveryMap(false)}
+          onSelectDelivery={(index) => {
+            onSelectDelivery(index);
+            setShowDeliveryMap(false);
+            setMapRequired(false);
+            setRouteChosen(true);
+          }}
+          onClose={mapRequired ? undefined : () => setShowDeliveryMap(false)}
+          required={mapRequired}
         />
       )}
 
@@ -176,10 +193,10 @@ export function EntregaScreen({
                 {deliveryIndex + 1}ª entrega de {totalDeliveries}
               </p>
             </div>
-            {onSelectDelivery && (
+            {onSelectDelivery && !routeChosen && (
               <button
                 data-testid="btn-ver-rotas-mapa"
-                onClick={() => setShowDeliveryMap(true)}
+                onClick={() => { setShowDeliveryMap(true); setMapRequired(false); }}
                 className="flex-shrink-0 flex flex-col items-center justify-center gap-1 px-3 py-2.5 rounded-2xl bg-blue-500/20 border border-blue-500/40 text-blue-400 hover:bg-blue-500/30 transition-colors"
               >
                 <Map className="w-4 h-4" />

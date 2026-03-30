@@ -12,14 +12,17 @@ export function DeliveryChoiceMap({
   currentIndex,
   onSelectDelivery,
   onClose,
+  required = false,
 }: {
   orders: Order[];
   currentIndex: number;
   onSelectDelivery: (index: number) => void;
-  onClose: () => void;
+  onClose?: () => void;
+  required?: boolean;
 }) {
   const [motoboyCoords, setMotoboyCoords] = useState<[number, number] | null>(null);
   const [geocodedCoords, setGeocodedCoords] = useState<Record<string, [number, number]>>({});
+  const [geocodedStoreCoords, setGeocodedStoreCoords] = useState<[number, number] | null>(null);
   const [geocodingLoading, setGeocodingLoading] = useState(false);
 
   useEffect(() => {
@@ -31,6 +34,21 @@ export function DeliveryChoiceMap({
       );
     }
   }, []);
+
+  const firstOrder = orders[0];
+
+  // Geocode store address when storeCoords not present
+  useEffect(() => {
+    if (firstOrder?.storeCoords || !firstOrder?.storeAddress) return;
+    fetch('/api/geocode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: firstOrder.storeAddress }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setGeocodedStoreCoords([d.lat, d.lng]); })
+      .catch(() => {});
+  }, [firstOrder?.storeCoords, firstOrder?.storeAddress]);
 
   // Geocode delivery addresses for orders missing deliveryCoords
   useEffect(() => {
@@ -64,8 +82,7 @@ export function DeliveryChoiceMap({
     });
   }, [orders]);
 
-  const firstOrder = orders[0];
-  const storeCoords: [number, number] = firstOrder?.storeCoords ?? DEFAULT_CENTER;
+  const storeCoords: [number, number] = firstOrder?.storeCoords ?? geocodedStoreCoords ?? DEFAULT_CENTER;
 
   const deliveryPoints: { coords: [number, number]; order: Order; index: number; approximate: boolean }[] = orders.map((o, i) => {
     const realCoords: [number, number] | undefined = o.deliveryCoords ?? geocodedCoords[o.id];
@@ -121,14 +138,23 @@ export function DeliveryChoiceMap({
     <div className="fixed inset-0 z-[9000] flex flex-col bg-[#111111]" data-testid="delivery-choice-map">
       {/* Header */}
       <div className="flex items-center justify-between px-5 pt-12 pb-4 flex-shrink-0">
-        <button
-          data-testid="btn-delivery-map-close"
-          onClick={onClose}
-          className="w-10 h-10 flex items-center justify-center rounded-full text-white/70 hover:bg-white/10 transition-colors"
-        >
-          <X className="w-6 h-6" />
-        </button>
-        <span className="text-white font-bold tracking-[0.15em] text-sm">ESCOLHER ROTA</span>
+        {!required && onClose ? (
+          <button
+            data-testid="btn-delivery-map-close"
+            onClick={onClose}
+            className="w-10 h-10 flex items-center justify-center rounded-full text-white/70 hover:bg-white/10 transition-colors"
+          >
+            <X className="w-6 h-6" />
+          </button>
+        ) : (
+          <div className="w-10" />
+        )}
+        <div className="text-center">
+          <span className="text-white font-bold tracking-[0.15em] text-sm">ESCOLHER ROTA</span>
+          {required && (
+            <p className="text-yellow-400 text-[10px] mt-0.5">Selecione por onde começar</p>
+          )}
+        </div>
         <div className="w-10" />
       </div>
 
@@ -166,7 +192,7 @@ export function DeliveryChoiceMap({
               position={coords}
               icon={createDeliveryNumberIcon(index + 1, index === currentIndex, approximate)}
               eventHandlers={{
-                click: () => { onSelectDelivery(index); onClose(); },
+                click: () => { onSelectDelivery(index); onClose?.(); },
               }}
             />
           ))}
@@ -206,26 +232,21 @@ export function DeliveryChoiceMap({
                 )}
               </div>
 
-              {/* Action button */}
-              {!isActive && (
-                <div className="px-3 pb-3">
-                  <button
-                    data-testid={`btn-ir-primeiro-${index}`}
-                    onClick={() => { onSelectDelivery(index); onClose(); }}
-                    className="w-full py-2.5 rounded-xl bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white font-bold text-sm transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Navigation className="w-4 h-4" />
-                    Ir aqui primeiro
-                  </button>
-                </div>
-              )}
-              {isActive && (
-                <div className="px-3 pb-3">
-                  <div className="w-full py-2.5 rounded-xl bg-green-500/20 border border-green-500/30 text-green-400 font-semibold text-sm text-center">
-                    Você vai aqui primeiro 🚀
-                  </div>
-                </div>
-              )}
+              {/* Action button — always shown for both deliveries */}
+              <div className="px-3 pb-3">
+                <button
+                  data-testid={`btn-ir-primeiro-${index}`}
+                  onClick={() => { onSelectDelivery(index); onClose?.(); }}
+                  className={`w-full py-2.5 rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-2 ${
+                    isActive
+                      ? 'bg-green-500 hover:bg-green-600 active:bg-green-700 text-white'
+                      : 'bg-blue-500 hover:bg-blue-600 active:bg-blue-700 text-white'
+                  }`}
+                >
+                  <Navigation className="w-4 h-4" />
+                  {isActive ? 'Confirmar esta entrega primeiro' : 'Ir aqui primeiro'}
+                </button>
+              </div>
             </div>
           );
         })}

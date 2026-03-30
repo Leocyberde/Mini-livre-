@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker } from 'react-leaflet';
-import { Order, mockStoreCoords } from '@/lib/mockData';
-import { formatKm } from '@/lib/deliveryCalc';
+import { Order } from '@/lib/mockData';
+import { formatKm, calcDoubleRouteValues } from '@/lib/deliveryCalc';
 import { CheckCircle2, X } from 'lucide-react';
 import {
   createMotoIcon, createPickupIcon, createDeliveryIcon,
@@ -22,6 +22,8 @@ export function RouteNotificationModal({
 }) {
   const [timeLeft, setTimeLeft] = useState(100);
   const [motoboyCoords, setMotoboyCoords] = useState<[number, number]>(DEFAULT_CENTER);
+  const [geocodedStoreCoords, setGeocodedStoreCoords] = useState<[number, number] | null>(null);
+  const [geocodedDeliveryCoords, setGeocodedDeliveryCoords] = useState<Record<string, [number, number]>>({});
   const soundPlayed = useRef(false);
   const isDouble = orders.length >= 2;
   const firstOrder = orders[0];
@@ -43,6 +45,47 @@ export function RouteNotificationModal({
     }
   }, []);
 
+  // Geocode store address when storeCoords not present
+  useEffect(() => {
+    if (firstOrder.storeCoords || !firstOrder.storeAddress) return;
+    fetch('/api/geocode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: firstOrder.storeAddress }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setGeocodedStoreCoords([d.lat, d.lng]); })
+      .catch(() => {});
+  }, [firstOrder.storeCoords, firstOrder.storeAddress]);
+
+  // Geocode delivery addresses when deliveryCoords not present
+  useEffect(() => {
+    const ordersNeedingGeocode = orders.filter(o => !o.deliveryCoords && o.deliveryAddress);
+    if (ordersNeedingGeocode.length === 0) return;
+    Promise.all(
+      ordersNeedingGeocode.map(async o => {
+        const addr = o.deliveryAddress!;
+        const fullAddress = [addr.logradouro, addr.numero, addr.bairro, addr.cidade].filter(Boolean).join(', ');
+        try {
+          const res = await fetch('/api/geocode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ address: fullAddress }),
+          });
+          if (res.ok) {
+            const { lat, lng } = await res.json();
+            return { id: o.id, coords: [lat, lng] as [number, number] };
+          }
+        } catch { /* ignore */ }
+        return null;
+      })
+    ).then(results => {
+      const map: Record<string, [number, number]> = {};
+      for (const r of results) { if (r) map[r.id] = r.coords; }
+      setGeocodedDeliveryCoords(map);
+    });
+  }, [orders]);
+
   const onRejectRef = useRef(onReject);
   useEffect(() => { onRejectRef.current = onReject; }, [onReject]);
 
@@ -60,20 +103,23 @@ export function RouteNotificationModal({
     return () => clearInterval(t);
   }, []);
 
-  const storeCoords: [number, number] = firstOrder.storeCoords ?? mockStoreCoords[firstOrder.storeId] ?? DEFAULT_CENTER;
-  const distKm = firstOrder.distanceKm ?? 3;
+  const storeCoords: [number, number] = firstOrder.storeCoords ?? geocodedStoreCoords ?? DEFAULT_CENTER;
 
-  // Collect all delivery coords for all orders in the route
-  const deliveryCoordsAll: [number, number][] = orders.map((o, i) =>
-    o.deliveryCoords ?? [
-      storeCoords[0] + ((o.distanceKm ?? distKm) / 111) * (0.65 + i * 0.2),
-      storeCoords[1] + ((o.distanceKm ?? distKm) / 111) * (0.75 + i * 0.2),
-    ]
+  // Use real geocoded coords; fall back to store position (not fake offsets)
+  const deliveryCoordsAll: [number, number][] = orders.map(o =>
+    o.deliveryCoords ?? geocodedDeliveryCoords[o.id] ?? storeCoords
   );
   const mapPositions: [number, number][] = [motoboyCoords, storeCoords, ...deliveryCoordsAll];
 
-  const totalValue = orders.reduce((sum, o) => sum + (o.motoRideValue ?? 8.5), 0);
   const totalKm = orders.reduce((sum, o) => sum + (o.distanceKm ?? 3), 0);
+
+  // For double routes use calcDoubleRouteValues so the extra-km fee is included correctly
+  const totalValue = isDouble
+    ? parseFloat((() => {
+        const { order1Value, order2Value } = calcDoubleRouteValues(totalKm);
+        return (order1Value + order2Value).toFixed(2);
+      })())
+    : orders.reduce((sum, o) => sum + (o.motoRideValue ?? 8.5), 0);
 
   const RADIUS = 42;
   const circ = 2 * Math.PI * RADIUS;

@@ -10,15 +10,6 @@ import { verifyToken } from "./auth.js";
 
 // ── Rate limiters ─────────────────────────────────────────────────────────────
 
-// Strict limiter for auth endpoints — defends against brute-force and enumeration
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Muitas tentativas. Tente novamente em 15 minutos.' },
-});
-
 // Tighter limiter for Google Maps geocode calls — prevents external API cost abuse
 const geocodeLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
@@ -60,7 +51,6 @@ async function startServer() {
   app.use(express.json({ limit: '1mb' }));
 
   // Apply rate limiters — specific paths first, then the general fallback
-  app.use('/api/auth', authLimiter);
   app.use('/api/geocode', geocodeLimiter);
   app.use('/api', apiLimiter);
 
