@@ -2,7 +2,7 @@
  * ProductQA Context — manages product Q&A threads (PostgreSQL backend)
  */
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authApi } from '@/lib/authFetch';
+import { authApi, authFetch } from '@/lib/authFetch';
 
 export interface ProductQuestion {
   id: string;
@@ -38,7 +38,10 @@ export function ProductQAProvider({ children }: { children: React.ReactNode }) {
   const [questions, setQuestions] = useState<ProductQuestion[]>([]);
 
   useEffect(() => {
-    fetch('/api/product-qa').then(r => r.json()).then(setQuestions).catch(console.error);
+    authFetch('/api/product-qa')
+      .then(r => r.ok ? r.json() : [])
+      .then((data: ProductQuestion[]) => { if (Array.isArray(data)) setQuestions(data); })
+      .catch(console.error);
   }, []);
 
   const sendQuestion = (q: Omit<ProductQuestion, 'id' | 'status' | 'createdAt'>): ProductQuestion => {
