@@ -19,7 +19,7 @@ export function InicioTab({ isDark, onToggleDark, onOpenColeta }: { isDark: bool
     status, setStatus, locationEnabled, requestLocation,
     balanceVisible, toggleBalanceVisible,
     todayEarnings, todayRides, unreadCount, totalRejectedRides,
-  } = useMotoby();
+  } = useMotoboy();
   const { activeMotoboyId, activeMotoboy, updateMotoboyStatus } = useMotoboyRegistry();
 
   const [showNotifications, setShowNotifications] = useState(false);
